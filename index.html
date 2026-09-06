@@ -4,269 +4,488 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Soccer Stalker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Work+Sans:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #0f1419;
-    --card: #1a2029;
-    --card-2: #222b36;
-    --line: #2e3947;
-    --text: #e8edf2;
-    --muted: #8b98a8;
-    --accent: #3ddc84;
-    --accent-ink: #05130a;
-    --danger: #ff5c68;
-    --win: #3ddc84;
-    --loss: #ff5c68;
-    --draw: #f5c451;
+  :root{
+    --paper:#faf8f4; --ink:#1c1a17; --ink-2:#5c574d; --muted:#78726a; --faint:#a09a8e;
+    --rule:#e7e2d8; --field:#c9c2b4; --accent:#2f5d45; --accent-soft:#b9cdc2;
+    --win:#2f7d4f; --loss:#b23a3a; --draw:#a97613; --white:#fffdfa;
+    --serif:'Libre Caslon Display',Georgia,'Times New Roman',serif;
+    --sans:'Work Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 620px; margin: 0 auto; padding: 20px 16px 60px; }
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  header h1 { font-size: 24px; margin: 0; letter-spacing: -0.5px; }
-  header .logo { font-size: 28px; }
-  .tag { color: var(--muted); font-size: 13px; margin: 0 0 22px 38px; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-weight:400;-webkit-font-smoothing:antialiased;min-height:100vh;}
+  button{font-family:var(--sans);cursor:pointer;}
+  input{font-family:inherit;}
+  [hidden]{display:none!important;}
 
-  .card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 18px;
-  }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 0 0 12px; }
+  .wrap{max-width:560px;margin:0 auto;padding:38px 22px 80px;}
+  .authwrap{max-width:392px;margin:0 auto;padding:14vh 22px 60px;}
 
-  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 5px; }
-  input[type=text] {
-    width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
-    border-radius: 10px; padding: 11px 12px; font-size: 15px; margin-bottom: 12px;
-  }
-  input[type=text]:focus { outline: none; border-color: var(--accent); }
-  button {
-    background: var(--accent); color: var(--accent-ink); border: none; border-radius: 10px;
-    padding: 11px 16px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%;
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); width: auto; padding: 6px 10px; font-size: 13px; font-weight: 500; }
-  button.ghost:hover { color: var(--danger); border-color: var(--danger); }
+  /* headline */
+  .brand{font-family:var(--serif);font-size:36px;font-weight:400;line-height:1;letter-spacing:-.01em;margin:0;}
+  .brand .ball{font-size:.66em;margin-right:.12em;}
+  .kicker{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--muted);margin:12px 0 0;}
 
-  .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
-  .msg.err { color: var(--danger); }
-  .msg.ok { color: var(--accent); }
+  /* user bar */
+  .userbar{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    margin:8px 0 34px;padding-top:14px;border-top:1px solid var(--rule);}
+  .who{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:lowercase;color:var(--faint);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  .team {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 0; border-top: 1px solid var(--line);
-  }
-  .team:first-of-type { border-top: none; }
-  .team .crest { width: 38px; height: 38px; border-radius: 8px; background: var(--card-2); object-fit: contain; flex: none; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-  .team .info { flex: 1; min-width: 0; }
-  .team .name { font-weight: 600; }
-  .team .sub { color: var(--muted); font-size: 12px; }
-  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 0; }
+  /* section */
+  section{margin-top:36px;}
+  .sechead{padding-bottom:9px;border-bottom:1px solid var(--ink);font-family:var(--mono);
+    font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink);}
 
-  .game { padding: 12px 0; border-top: 1px solid var(--line); }
-  .game:first-child { border-top: none; }
-  .game .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .game .matchup { font-weight: 600; }
-  .game .score { font-variant-numeric: tabular-nums; font-weight: 700; }
-  .game .score.win { color: var(--win); }
-  .game .score.loss { color: var(--loss); }
-  .game .score.draw { color: var(--draw); }
-  .game .when { color: var(--muted); font-size: 12px; margin-top: 3px; }
-  .pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--card-2); color: var(--muted); }
-  .group-title { display:flex; align-items:center; gap:8px; margin: 4px 0 6px; font-weight: 600; }
-  .group-title img { width: 22px; height: 22px; border-radius: 5px; object-fit: contain; }
-  a.link { color: var(--accent); text-decoration: none; }
+  /* fields */
+  .field{display:block;margin-top:20px;}
+  .field > span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
+  .field input{width:100%;background:transparent;border:0;border-bottom:1px solid var(--field);
+    padding:7px 2px 9px;font-family:var(--sans);font-size:15.5px;color:var(--ink);outline:none;}
+  .field input:focus{border-bottom-color:var(--ink);}
+  .field input::placeholder{color:var(--faint);}
+
+  /* buttons */
+  .primary{display:block;width:100%;margin-top:26px;background:var(--ink);color:var(--paper);
+    border:1px solid var(--ink);border-radius:2px;padding:14px 24px;font-size:12px;font-weight:500;
+    letter-spacing:.16em;text-transform:uppercase;transition:background .12s,color .12s;}
+  .primary:hover{background:transparent;color:var(--ink);}
+  .primary:disabled{opacity:.45;cursor:default;}
+  .underbtn{background:none;border:0;padding:0 0 2px;font-family:var(--mono);font-size:10px;
+    font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+    border-bottom:1px solid var(--accent-soft);cursor:pointer;}
+  .underbtn:hover{border-bottom-color:var(--accent);}
+
+  .msg{min-height:18px;margin-top:14px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--muted);}
+  .msg.err{color:var(--loss);}
+  .msg.ok{color:var(--accent);}
+
+  .togglerow{margin-top:22px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);display:flex;gap:8px;justify-content:center;}
+
+  /* team rows */
+  .team{display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid var(--rule);}
+  .crest{width:34px;height:34px;flex:none;border-radius:2px;background:var(--white);border:1px solid var(--rule);
+    object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:17px;}
+  .team .info{flex:1;min-width:0;}
+  .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .team .tid{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+  .xbtn{background:none;border:0;padding:2px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint);flex:none;cursor:pointer;}
+  .xbtn:hover{color:var(--loss);}
+
+  .empty{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--faint);padding:22px 0;text-align:center;line-height:1.7;}
+
+  /* games */
+  .teamgroup{margin-top:22px;}
+  .teamgroup:first-child{margin-top:16px;}
+  .grouphd{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
+  .grouphd img{width:20px;height:20px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
+  .grouphd .gname{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);}
+  .game{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    padding:13px 0;border-bottom:1px solid var(--rule);}
+  .game .matchup{font-size:15px;font-weight:500;color:var(--ink);}
+  .game .matchup .vs{color:var(--faint);font-weight:400;}
+  .game .when{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);margin-top:4px;line-height:1.5;}
+  .result{display:flex;align-items:center;gap:8px;flex:none;}
+  .result .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+  .result .sc{font-family:var(--mono);font-size:14px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;}
+  .result.win .dot{background:var(--win);} .result.win .sc{color:var(--win);}
+  .result.loss .dot{background:var(--loss);} .result.loss .sc{color:var(--loss);}
+  .result.draw .dot{background:var(--draw);} .result.draw .sc{color:var(--draw);}
+  .upcoming{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);flex:none;}
+
+  /* view controls */
+  .controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;margin:16px 0 2px;}
+  .seg{display:inline-flex;border:1px solid var(--field);border-radius:2px;overflow:hidden;}
+  .seg button{background:none;padding:7px 13px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
+  .seg button.on{background:var(--ink);color:var(--paper);}
+  .seg button+button{border-left:1px solid var(--field);}
+  .chips{display:inline-flex;gap:7px;flex-wrap:wrap;}
+  .chips button{background:var(--white);border:1px solid var(--field);border-radius:2px;padding:7px 11px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);}
+  .chips button.on{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+  .gteam{display:flex;align-items:center;gap:7px;margin-bottom:3px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
+  .gteam img{width:15px;height:15px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
+  .gteam .ball{font-size:12px;}
+  .recentpick{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:12px 0 2px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .recentpick .rplabel{color:var(--faint);}
+  .stepper{display:inline-flex;align-items:center;gap:8px;}
+  .stepper button{width:22px;height:22px;flex:none;border:1px solid var(--field);border-radius:2px;background:var(--white);
+    color:var(--ink);font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .stepper button:hover{border-color:var(--ink);}
+  .stepper b{font-weight:600;color:var(--ink);min-width:12px;text-align:center;font-size:11px;}
+  .stepper .unit{color:var(--muted);}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <span class="logo">⚽</span>
-    <h1>Soccer Stalker</h1>
-  </header>
-  <p class="tag">Follow a team, get stalked scores &amp; schedules.</p>
 
-  <div class="card">
-    <h2>Follow a team</h2>
-    <label>gotSport team link (or just the team ID)</label>
-    <input id="url" type="text" placeholder="https://rankings.gotsport.com/teams/781238/game-history" autocomplete="off">
-    <label>Nickname (optional — e.g. "Ava U13")</label>
-    <input id="nick" type="text" placeholder="Leave blank to fill in automatically" autocomplete="off">
-    <button id="add">Follow team</button>
-    <div id="addMsg" class="msg"></div>
-  </div>
+<!-- ============ AUTH (logged out) ============ -->
+<div id="auth" class="authwrap" hidden>
+  <h1 class="brand" style="text-align:center;"><span class="ball">⚽</span>Soccer Stalker</h1>
+  <p class="kicker" style="text-align:center;">Follow a team · get every score</p>
 
-  <div class="card">
-    <h2>Teams you follow</h2>
-    <div id="teams"><div class="empty">Loading…</div></div>
-  </div>
-
-  <div class="card">
-    <h2>Games</h2>
-    <div id="games"><div class="empty">Loading…</div></div>
-  </div>
+  <section style="margin-top:40px;">
+    <div class="sechead" id="authTitle">Sign in</div>
+    <label class="field"><span>Email</span>
+      <input id="email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+    <label class="field"><span>Password</span>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+    <button class="primary" id="authBtn">Sign in</button>
+    <div id="authMsg" class="msg"></div>
+    <div class="togglerow">
+      <span id="toggleText">No account yet?</span>
+      <button class="underbtn" id="toggleMode">Create one</button>
+    </div>
+  </section>
 </div>
 
+<!-- ============ APP (logged in) ============ -->
+<div id="app" class="wrap" hidden>
+  <h1 class="brand"><span class="ball">⚽</span>Soccer Stalker</h1>
+  <div class="userbar">
+    <span class="who" id="who"></span>
+    <button class="underbtn" id="signOut" style="color:var(--muted);border-bottom-color:var(--rule);">Sign out</button>
+  </div>
+
+  <section>
+    <div class="sechead">Follow a team</div>
+    <label class="field"><span>gotSport team link · or team ID</span>
+      <input id="url" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
+    <label class="field"><span>Nickname · optional</span>
+      <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
+    <button class="primary" id="add">Follow team</button>
+    <div id="addMsg" class="msg"></div>
+  </section>
+
+  <section>
+    <div class="sechead">Teams you follow</div>
+    <div id="teams"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="sechead">Games</div>
+    <div class="controls">
+      <div class="seg">
+        <button data-group="team">By team</button>
+        <button data-group="combined">Combined</button>
+      </div>
+      <div class="chips">
+        <button data-range="recent">Recent</button>
+        <button data-range="upcoming">Upcoming</button>
+        <button data-range="history">History</button>
+      </div>
+    </div>
+    <div id="recentPick" class="recentpick" hidden>
+      <span class="rplabel">Recent window</span>
+      <span class="stepper"><button data-adj="before" data-d="-1" aria-label="less before">–</button><b id="rpBefore">2</b><span class="unit">w before</span><button data-adj="before" data-d="1" aria-label="more before">+</button></span>
+      <span class="stepper"><button data-adj="after" data-d="-1" aria-label="less after">–</button><b id="rpAfter">2</b><span class="unit">w after</span><button data-adj="after" data-d="1" aria-label="more after">+</button></span>
+    </div>
+    <div id="games"><div class="empty">Loading…</div></div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SUPABASE_URL = "https://hcepmsqsxsdhjgxguwqc.supabase.co";
-const SUPABASE_KEY = "sb_publishable_ki2jZTUn2S3uvLgPL8xCHg_mRKnc7Ie";
-const REST = SUPABASE_URL + "/rest/v1";
-const headers = {
-  "apikey": SUPABASE_KEY,
-  "Authorization": "Bearer " + SUPABASE_KEY,
-  "Content-Type": "application/json"
-};
+(function () {
+  "use strict";
+  const SUPABASE_URL = "https://hcepmsqsxsdhjgxguwqc.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_ki2jZTUn2S3uvLgPL8xCHg_mRKnc7Ie";
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const $ = (id) => document.getElementById(id);
+  const $ = (id) => document.getElementById(id);
+  let user = null;
+  let authMode = "signin"; // or "signup"
 
-// Pull the numeric team ID out of a pasted gotSport URL (or a bare number).
-function parseTeamId(input) {
-  const s = (input || "").trim();
-  const m = s.match(/teams\/(\d+)/);
-  if (m) return m[1];
-  if (/^\d{3,}$/.test(s)) return s;
-  return null;
-}
-
-async function api(path, opts = {}) {
-  const res = await fetch(REST + path, { headers, ...opts });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(body || (res.status + " " + res.statusText));
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
-
-async function addTeam() {
-  const msg = $("addMsg");
-  msg.className = "msg";
-  msg.textContent = "";
-  const teamId = parseTeamId($("url").value);
-  if (!teamId) {
-    msg.className = "msg err";
-    msg.textContent = "Couldn't find a team ID in that. Paste a link like .../teams/781238/... or just the number.";
-    return;
-  }
-  const nick = $("nick").value.trim();
-  $("add").disabled = true;
+  // ---- games view state (persisted per device) ----
+  let allGames = [];
+  let groupMode = "team";                                    // "team" | "combined"
+  let ranges = { recent: true, upcoming: false, history: false };
+  let recentBefore = 2, recentAfter = 2;                     // "Recent" window, in weeks
+  function clampWk(n) { n = Math.round(Number(n)); return n < 0 ? 0 : (n > 52 ? 52 : n); }
   try {
-    await api("/followed_teams", {
-      method: "POST",
-      headers: { ...headers, "Prefer": "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ team_id: teamId, name: nick || ("Team " + teamId) })
-    });
-    msg.className = "msg ok";
-    msg.textContent = "Following team " + teamId + "! Details & games fill in on the next sync.";
-    $("url").value = "";
-    $("nick").value = "";
+    const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
+    if (saved) {
+      if (saved.groupMode === "team" || saved.groupMode === "combined") groupMode = saved.groupMode;
+      if (saved.ranges) ranges = Object.assign(ranges, saved.ranges);
+      if (Number.isFinite(saved.recentBefore)) recentBefore = clampWk(saved.recentBefore);
+      if (Number.isFinite(saved.recentAfter)) recentAfter = clampWk(saved.recentAfter);
+    }
+  } catch (e) {}
+  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, ranges, recentBefore, recentAfter })); } catch (e) {} }
+
+  // ---------- helpers ----------
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function parseTeamId(input) {
+    const s = (input || "").trim();
+    const m = s.match(/teams\/(\d+)/);
+    if (m) return m[1];
+    if (/^\d{3,}$/.test(s)) return s;
+    return null;
+  }
+  function errmsg(e) { return (e && e.message) ? e.message : String(e); }
+
+  // ---------- auth UI ----------
+  function renderAuthMode() {
+    const signup = authMode === "signup";
+    $("authTitle").textContent = signup ? "Create account" : "Sign in";
+    $("authBtn").textContent = signup ? "Create account" : "Sign in";
+    $("toggleText").textContent = signup ? "Already have an account?" : "No account yet?";
+    $("toggleMode").textContent = signup ? "Sign in" : "Create one";
+    $("password").setAttribute("autocomplete", signup ? "new-password" : "current-password");
+    $("authMsg").textContent = "";
+    $("authMsg").className = "msg";
+  }
+
+  async function doAuth() {
+    const email = $("email").value.trim();
+    const password = $("password").value;
+    const msg = $("authMsg");
+    msg.className = "msg";
+    if (!email || !password) { msg.className = "msg err"; msg.textContent = "Enter an email and password."; return; }
+    $("authBtn").disabled = true;
+    try {
+      if (authMode === "signup") {
+        const { data, error } = await sb.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.session) {
+          // logged straight in (email confirmation is off)
+        } else {
+          msg.className = "msg ok";
+          msg.textContent = "Check your email to confirm your account, then sign in.";
+        }
+      } else {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      }
+    } catch (e) {
+      msg.className = "msg err";
+      msg.textContent = errmsg(e);
+    } finally {
+      $("authBtn").disabled = false;
+    }
+  }
+
+  // ---------- session -> screen ----------
+  function showLoggedOut() {
+    user = null;
+    $("app").hidden = true;
+    $("auth").hidden = false;
+  }
+  function showLoggedIn(u) {
+    user = u;
+    $("auth").hidden = true;
+    $("app").hidden = false;
+    $("who").textContent = u.email;
     loadTeams();
     loadGames();
-  } catch (e) {
-    msg.className = "msg err";
-    msg.textContent = "Error: " + e.message;
-  } finally {
-    $("add").disabled = false;
   }
-}
 
-async function removeTeam(teamId, name) {
-  if (!confirm("Stop following " + name + "?")) return;
-  try {
-    await api("/followed_teams?team_id=eq." + encodeURIComponent(teamId), { method: "DELETE" });
-    loadTeams();
-    loadGames();
-  } catch (e) {
-    alert("Couldn't remove: " + e.message);
+  // ---------- data ----------
+  async function addTeam() {
+    const msg = $("addMsg");
+    msg.className = "msg"; msg.textContent = "";
+    const teamId = parseTeamId($("url").value);
+    if (!teamId) {
+      msg.className = "msg err";
+      msg.textContent = "Couldn't find a team ID. Paste a link like .../teams/781238/... or just the number.";
+      return;
+    }
+    const nick = $("nick").value.trim();
+    $("add").disabled = true;
+    try {
+      const { error } = await sb.from("followed_teams")
+        .upsert({ team_id: teamId, name: nick || ("Team " + teamId), user_id: user.id },
+                { onConflict: "user_id,team_id" });
+      if (error) throw error;
+      msg.className = "msg ok";
+      msg.textContent = "Following team " + teamId + " — details & games fill in on the next sync.";
+      $("url").value = ""; $("nick").value = "";
+      loadTeams(); loadGames();
+    } catch (e) {
+      msg.className = "msg err";
+      msg.textContent = errmsg(e);
+    } finally {
+      $("add").disabled = false;
+    }
   }
-}
 
-function crest(logo) {
-  if (logo) return '<img class="crest" src="' + logo + '" alt="" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'crest\',textContent:\'⚽\'}))">';
-  return '<div class="crest">⚽</div>';
-}
+  async function removeTeam(teamId, name) {
+    if (!confirm("Stop following " + name + "?")) return;
+    try {
+      const { error } = await sb.from("followed_teams").delete()
+        .eq("team_id", teamId).eq("user_id", user.id);
+      if (error) throw error;
+      loadTeams(); loadGames();
+    } catch (e) {
+      alert("Couldn't remove: " + errmsg(e));
+    }
+  }
 
-async function loadTeams() {
-  const el = $("teams");
-  try {
-    const teams = await api("/followed_teams?select=*&order=created_at.desc");
-    if (!teams.length) { el.innerHTML = '<div class="empty">No teams yet. Add one above.</div>'; return; }
+  function crest(logo) {
+    if (logo) return '<img class="crest" src="' + logo + '" alt="" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'crest\',textContent:\'⚽\'}))">';
+    return '<div class="crest">⚽</div>';
+  }
+
+  async function loadTeams() {
+    const el = $("teams");
+    const { data: teams, error } = await sb.from("followed_teams")
+      .select("*").order("created_at", { ascending: false });
+    if (error) { el.innerHTML = '<div class="empty">Error: ' + escapeHtml(errmsg(error)) + '</div>'; return; }
+    if (!teams.length) { el.innerHTML = '<div class="empty">No teams yet.<br>Add one above.</div>'; return; }
     el.innerHTML = teams.map(t => `
       <div class="team">
         ${crest(t.logo)}
         <div class="info">
           <div class="name">${escapeHtml(t.name)}</div>
-          <div class="sub">ID ${t.team_id}</div>
+          <div class="tid">ID ${escapeHtml(t.team_id)}</div>
         </div>
-        <button class="ghost" onclick="removeTeam('${t.team_id}', ${JSON.stringify(t.name)})">Unfollow</button>
+        <button class="xbtn" data-team="${escapeHtml(t.team_id)}" data-name="${escapeHtml(t.name)}">Unfollow</button>
       </div>`).join("");
-  } catch (e) {
-    el.innerHTML = '<div class="empty">Error loading teams: ' + escapeHtml(e.message) + '</div>';
+    el.querySelectorAll("button[data-team]").forEach(b =>
+      b.addEventListener("click", () => removeTeam(b.dataset.team, b.dataset.name)));
   }
-}
 
-function fmtWhen(g) {
-  if (!g.match_time) return g.match_date || "Time TBD";
-  const d = new Date(g.match_time);
-  return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function scoreBlock(g) {
-  if (g.team_score == null || g.opponent_score == null) {
-    return '<span class="pill">upcoming</span>';
+  function fmtWhen(g) {
+    if (!g.match_time) return g.match_date || "Time TBD";
+    const d = new Date(g.match_time);
+    return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
-  let cls = "draw";
-  if (g.team_score > g.opponent_score) cls = "win";
-  else if (g.team_score < g.opponent_score) cls = "loss";
-  return '<span class="score ' + cls + '">' + g.team_score + '–' + g.opponent_score + '</span>';
-}
+  function resultBlock(g) {
+    if (g.team_score == null || g.opponent_score == null) return '<span class="upcoming">Upcoming</span>';
+    let cls = "draw";
+    if (g.team_score > g.opponent_score) cls = "win";
+    else if (g.team_score < g.opponent_score) cls = "loss";
+    return '<span class="result ' + cls + '"><span class="dot"></span><span class="sc">' + g.team_score + '–' + g.opponent_score + '</span></span>';
+  }
 
-async function loadGames() {
-  const el = $("games");
-  try {
-    const games = await api("/games?select=*&order=match_time.asc");
-    if (!games.length) {
-      el.innerHTML = '<div class="empty">No games synced yet. They\'ll appear here after the next background sync.</div>';
-      return;
+  // ---- date/range filtering ----
+  function gameDate(g) {
+    if (g.match_time) { const d = new Date(g.match_time); return isNaN(d) ? null : d; }
+    if (g.match_date) { const d = new Date(g.match_date + "T12:00:00"); return isNaN(d) ? null : d; }
+    return null;
+  }
+  function anyRange() { return ranges.recent || ranges.upcoming || ranges.history; }
+  function inRanges(g) {
+    if (ranges.history) return true;                          // history = everything
+    const d = gameDate(g), now = new Date();
+    if (ranges.upcoming) {                                     // upcoming = every future game (TBD counts)
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (!d || d >= today) return true;
     }
-    // group by followed team
-    const byTeam = {};
-    for (const g of games) (byTeam[g.team_name || g.team_id] ||= []).push(g);
-    el.innerHTML = Object.entries(byTeam).map(([team, gs]) => `
-      <div style="margin-bottom:14px;">
-        <div class="group-title">${gs[0].team_logo ? '<img src="'+gs[0].team_logo+'" alt="">' : '⚽'} ${escapeHtml(team)}</div>
-        ${gs.map(g => `
-          <div class="game">
-            <div class="top">
-              <span class="matchup">vs ${escapeHtml(g.opponent_name || "TBD")}</span>
-              ${scoreBlock(g)}
-            </div>
-            <div class="when">${escapeHtml(fmtWhen(g))}${g.field_name ? " · " + escapeHtml(g.field_name) : ""}${g.venue_name ? " · " + escapeHtml(g.venue_name) : ""}</div>
-          </div>`).join("")}
-      </div>`).join("");
-  } catch (e) {
-    el.innerHTML = '<div class="empty">Error loading games: ' + escapeHtml(e.message) + '</div>';
+    if (ranges.recent && d) {                                  // recent = within the chosen weeks window
+      const ms = d.getTime() - now.getTime();
+      if (ms <= recentAfter * 7 * 86400000 && ms >= -recentBefore * 7 * 86400000) return true;
+    }
+    return false;
   }
-}
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+  function gameRow(g, showTeam) {
+    const meta = escapeHtml(fmtWhen(g))
+      + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
+      + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
+    let teamTag = "";
+    if (showTeam) {
+      const tn = escapeHtml(g.team_name || ("Team " + g.team_id));
+      teamTag = '<div class="gteam">'
+        + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : '<span class="ball">⚽</span>')
+        + tn + '</div>';
+    }
+    return '<div class="game"><div class="gleft">' + teamTag
+      + '<div class="matchup"><span class="vs">vs</span> ' + escapeHtml(g.opponent_name || "TBD") + '</div>'
+      + '<div class="when">' + meta + '</div></div>' + resultBlock(g) + '</div>';
+  }
 
-$("add").addEventListener("click", addTeam);
-$("url").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
-$("nick").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+  function renderGames() {
+    const el = $("games");
+    if (!allGames.length) { el.innerHTML = '<div class="empty">No games synced yet.<br>They appear after the next background sync.</div>'; return; }
+    if (!anyRange()) { el.innerHTML = '<div class="empty">Pick a filter — recent, upcoming, or history.</div>'; return; }
+    const list = allGames.filter(inRanges).sort((a, b) => {
+      const da = gameDate(a), db = gameDate(b);
+      if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+      return da - db;
+    });
+    if (!list.length) { el.innerHTML = '<div class="empty">No games in this range.</div>'; return; }
+    if (groupMode === "combined") {
+      el.innerHTML = list.map(g => gameRow(g, true)).join("");
+    } else {
+      const byTeam = {};
+      for (const g of list) (byTeam[g.team_name || g.team_id] ||= []).push(g);
+      el.innerHTML = Object.entries(byTeam).map(([team, gs]) =>
+        '<div class="teamgroup"><div class="grouphd">'
+        + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
+        + '<span class="gname">' + escapeHtml(team) + '</span></div>'
+        + gs.map(g => gameRow(g, false)).join("") + '</div>').join("");
+    }
+  }
 
-loadTeams();
-loadGames();
+  function syncControls() {
+    document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.group === groupMode));
+    document.querySelectorAll(".chips button").forEach(b => b.classList.toggle("on", !!ranges[b.dataset.range]));
+    $("recentPick").hidden = !ranges.recent;
+    $("rpBefore").textContent = recentBefore;
+    $("rpAfter").textContent = recentAfter;
+  }
+
+  async function loadGames() {
+    const el = $("games");
+    const { data: teams } = await sb.from("followed_teams").select("team_id");
+    const ids = (teams || []).map(t => t.team_id);
+    if (!ids.length) { allGames = []; el.innerHTML = '<div class="empty">Follow a team to see its games.</div>'; return; }
+    const { data: games, error } = await sb.from("games").select("*").in("team_id", ids);
+    if (error) { el.innerHTML = '<div class="empty">Error: ' + escapeHtml(errmsg(error)) + '</div>'; return; }
+    allGames = games || [];
+    renderGames();
+  }
+
+  // ---------- wire up ----------
+  $("authBtn").addEventListener("click", doAuth);
+  $("password").addEventListener("keydown", e => { if (e.key === "Enter") doAuth(); });
+  $("email").addEventListener("keydown", e => { if (e.key === "Enter") doAuth(); });
+  $("toggleMode").addEventListener("click", () => { authMode = authMode === "signin" ? "signup" : "signin"; renderAuthMode(); });
+  $("signOut").addEventListener("click", () => sb.auth.signOut());
+  $("add").addEventListener("click", addTeam);
+  $("url").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+  $("nick").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    groupMode = b.dataset.group; saveView(); syncControls(); renderGames();
+  }));
+  document.querySelectorAll(".chips button").forEach(b => b.addEventListener("click", () => {
+    ranges[b.dataset.range] = !ranges[b.dataset.range]; saveView(); syncControls(); renderGames();
+  }));
+  document.querySelectorAll("#recentPick button").forEach(b => b.addEventListener("click", () => {
+    const d = parseInt(b.dataset.d, 10);
+    if (b.dataset.adj === "before") recentBefore = clampWk(recentBefore + d);
+    else recentAfter = clampWk(recentAfter + d);
+    saveView(); syncControls(); renderGames();
+  }));
+  syncControls();
+
+  renderAuthMode();
+  sb.auth.onAuthStateChange((_e, session) => {
+    if (session && session.user) showLoggedIn(session.user);
+    else showLoggedOut();
+  });
+  sb.auth.getSession().then(({ data }) => {
+    if (data.session && data.session.user) showLoggedIn(data.session.user);
+    else showLoggedOut();
+  });
+})();
 </script>
 </body>
 </html>
