@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soccer Stalker</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --card: #1a2029;
+    --card-2: #222b36;
+    --line: #2e3947;
+    --text: #e8edf2;
+    --muted: #8b98a8;
+    --accent: #3ddc84;
+    --accent-ink: #05130a;
+    --danger: #ff5c68;
+    --win: #3ddc84;
+    --loss: #ff5c68;
+    --draw: #f5c451;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  header h1 { font-size: 24px; margin: 0; letter-spacing: -0.5px; }
+  header .logo { font-size: 28px; }
+  .tag { color: var(--muted); font-size: 13px; margin: 0 0 22px 38px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 18px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 0 0 12px; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 5px; }
+  input[type=text] {
+    width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; padding: 11px 12px; font-size: 15px; margin-bottom: 12px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent); color: var(--accent-ink); border: none; border-radius: 10px;
+    padding: 11px 16px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); width: auto; padding: 6px 10px; font-size: 13px; font-weight: 500; }
+  button.ghost:hover { color: var(--danger); border-color: var(--danger); }
+
+  .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .msg.err { color: var(--danger); }
+  .msg.ok { color: var(--accent); }
+
+  .team {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 0; border-top: 1px solid var(--line);
+  }
+  .team:first-of-type { border-top: none; }
+  .team .crest { width: 38px; height: 38px; border-radius: 8px; background: var(--card-2); object-fit: contain; flex: none; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .team .info { flex: 1; min-width: 0; }
+  .team .name { font-weight: 600; }
+  .team .sub { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 0; }
+
+  .game { padding: 12px 0; border-top: 1px solid var(--line); }
+  .game:first-child { border-top: none; }
+  .game .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .game .matchup { font-weight: 600; }
+  .game .score { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .game .score.win { color: var(--win); }
+  .game .score.loss { color: var(--loss); }
+  .game .score.draw { color: var(--draw); }
+  .game .when { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--card-2); color: var(--muted); }
+  .group-title { display:flex; align-items:center; gap:8px; margin: 4px 0 6px; font-weight: 600; }
+  .group-title img { width: 22px; height: 22px; border-radius: 5px; object-fit: contain; }
+  a.link { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo">⚽</span>
+    <h1>Soccer Stalker</h1>
+  </header>
+  <p class="tag">Follow a team, get stalked scores &amp; schedules.</p>
+
+  <div class="card">
+    <h2>Follow a team</h2>
+    <label>gotSport team link (or just the team ID)</label>
+    <input id="url" type="text" placeholder="https://rankings.gotsport.com/teams/781238/game-history" autocomplete="off">
+    <label>Nickname (optional — e.g. "Ava U13")</label>
+    <input id="nick" type="text" placeholder="Leave blank to fill in automatically" autocomplete="off">
+    <button id="add">Follow team</button>
+    <div id="addMsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Teams you follow</h2>
+    <div id="teams"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Games</h2>
+    <div id="games"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://hcepmsqsxsdhjgxguwqc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ki2jZTUn2S3uvLgPL8xCHg_mRKnc7Ie";
+const REST = SUPABASE_URL + "/rest/v1";
+const headers = {
+  "apikey": SUPABASE_KEY,
+  "Authorization": "Bearer " + SUPABASE_KEY,
+  "Content-Type": "application/json"
+};
+
+const $ = (id) => document.getElementById(id);
+
+// Pull the numeric team ID out of a pasted gotSport URL (or a bare number).
+function parseTeamId(input) {
+  const s = (input || "").trim();
+  const m = s.match(/teams\/(\d+)/);
+  if (m) return m[1];
+  if (/^\d{3,}$/.test(s)) return s;
+  return null;
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(REST + path, { headers, ...opts });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(body || (res.status + " " + res.statusText));
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function addTeam() {
+  const msg = $("addMsg");
+  msg.className = "msg";
+  msg.textContent = "";
+  const teamId = parseTeamId($("url").value);
+  if (!teamId) {
+    msg.className = "msg err";
+    msg.textContent = "Couldn't find a team ID in that. Paste a link like .../teams/781238/... or just the number.";
+    return;
+  }
+  const nick = $("nick").value.trim();
+  $("add").disabled = true;
+  try {
+    await api("/followed_teams", {
+      method: "POST",
+      headers: { ...headers, "Prefer": "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ team_id: teamId, name: nick || ("Team " + teamId) })
+    });
+    msg.className = "msg ok";
+    msg.textContent = "Following team " + teamId + "! Details & games fill in on the next sync.";
+    $("url").value = "";
+    $("nick").value = "";
+    loadTeams();
+    loadGames();
+  } catch (e) {
+    msg.className = "msg err";
+    msg.textContent = "Error: " + e.message;
+  } finally {
+    $("add").disabled = false;
+  }
+}
+
+async function removeTeam(teamId, name) {
+  if (!confirm("Stop following " + name + "?")) return;
+  try {
+    await api("/followed_teams?team_id=eq." + encodeURIComponent(teamId), { method: "DELETE" });
+    loadTeams();
+    loadGames();
+  } catch (e) {
+    alert("Couldn't remove: " + e.message);
+  }
+}
+
+function crest(logo) {
+  if (logo) return '<img class="crest" src="' + logo + '" alt="" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'crest\',textContent:\'⚽\'}))">';
+  return '<div class="crest">⚽</div>';
+}
+
+async function loadTeams() {
+  const el = $("teams");
+  try {
+    const teams = await api("/followed_teams?select=*&order=created_at.desc");
+    if (!teams.length) { el.innerHTML = '<div class="empty">No teams yet. Add one above.</div>'; return; }
+    el.innerHTML = teams.map(t => `
+      <div class="team">
+        ${crest(t.logo)}
+        <div class="info">
+          <div class="name">${escapeHtml(t.name)}</div>
+          <div class="sub">ID ${t.team_id}</div>
+        </div>
+        <button class="ghost" onclick="removeTeam('${t.team_id}', ${JSON.stringify(t.name)})">Unfollow</button>
+      </div>`).join("");
+  } catch (e) {
+    el.innerHTML = '<div class="empty">Error loading teams: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function fmtWhen(g) {
+  if (!g.match_time) return g.match_date || "Time TBD";
+  const d = new Date(g.match_time);
+  return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function scoreBlock(g) {
+  if (g.team_score == null || g.opponent_score == null) {
+    return '<span class="pill">upcoming</span>';
+  }
+  let cls = "draw";
+  if (g.team_score > g.opponent_score) cls = "win";
+  else if (g.team_score < g.opponent_score) cls = "loss";
+  return '<span class="score ' + cls + '">' + g.team_score + '–' + g.opponent_score + '</span>';
+}
+
+async function loadGames() {
+  const el = $("games");
+  try {
+    const games = await api("/games?select=*&order=match_time.asc");
+    if (!games.length) {
+      el.innerHTML = '<div class="empty">No games synced yet. They\'ll appear here after the next background sync.</div>';
+      return;
+    }
+    // group by followed team
+    const byTeam = {};
+    for (const g of games) (byTeam[g.team_name || g.team_id] ||= []).push(g);
+    el.innerHTML = Object.entries(byTeam).map(([team, gs]) => `
+      <div style="margin-bottom:14px;">
+        <div class="group-title">${gs[0].team_logo ? '<img src="'+gs[0].team_logo+'" alt="">' : '⚽'} ${escapeHtml(team)}</div>
+        ${gs.map(g => `
+          <div class="game">
+            <div class="top">
+              <span class="matchup">vs ${escapeHtml(g.opponent_name || "TBD")}</span>
+              ${scoreBlock(g)}
+            </div>
+            <div class="when">${escapeHtml(fmtWhen(g))}${g.field_name ? " · " + escapeHtml(g.field_name) : ""}${g.venue_name ? " · " + escapeHtml(g.venue_name) : ""}</div>
+          </div>`).join("")}
+      </div>`).join("");
+  } catch (e) {
+    el.innerHTML = '<div class="empty">Error loading games: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+$("add").addEventListener("click", addTeam);
+$("url").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+$("nick").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+
+loadTeams();
+loadGames();
+</script>
+</body>
+</html>
