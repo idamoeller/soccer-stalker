@@ -59,21 +59,34 @@ def get_followed_team_ids():
 
 
 def fetch_matches(team_id):
-    """Both past and upcoming matches for a team, de-duped by match id."""
+    """Results (Game History) + the real upcoming schedule (Upcoming Games tab),
+    de-duped by match id.
+
+    `upcoming=true` is the endpoint the team page's "Upcoming Games" tab uses --
+    it includes day-of tournament games that `past=false` misses. Results
+    (`past=true`, which carry the authoritative scores) are fetched LAST so a
+    completed game's real score always wins over any stale null-score copy."""
     matches = {}
-    for past in ("true", "false"):
+    queries = (
+        {"upcoming": "true"},   # future schedule, incl. today's tournament games
+        {"past": "false"},      # recently completed / in-between
+        {"past": "true"},       # results with scores -- last, so it wins on merge
+    )
+    for q in queries:
         try:
             r = requests.get(
                 f"{GOTSPORT}/api/v1/teams/{team_id}/matches",
-                params={"past": past, "page": 1, "per_page": 100},
+                params={**q, "page": 1, "per_page": 100},
                 headers={"Accept": "application/json"},
                 timeout=30,
             )
             r.raise_for_status()
-            for m in r.json().get("matches", []):
+            data = r.json()
+            items = data if isinstance(data, list) else data.get("matches", [])
+            for m in items:
                 matches[m["id"]] = m
         except Exception as e:
-            print(f"    ! fetch team {team_id} past={past} failed: {e}")
+            print(f"    ! fetch team {team_id} {q} failed: {e}")
     return list(matches.values())
 
 
