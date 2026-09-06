@@ -29,6 +29,17 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 GOTSPORT = "https://system.gotsport.com"
 
+# Look like a real browser hitting the rankings site. From a datacenter IP
+# (GitHub Actions / serverless) gotSport bot-challenges bare requests to the
+# `upcoming=true` feed; these headers get past that.
+GS_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+    "Referer": "https://rankings.gotsport.com/",
+    "Origin": "https://rankings.gotsport.com",
+}
+
 SB_HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -77,12 +88,13 @@ def fetch_matches(team_id):
             r = requests.get(
                 f"{GOTSPORT}/api/v1/teams/{team_id}/matches",
                 params={**q, "page": 1, "per_page": 100},
-                headers={"Accept": "application/json"},
+                headers=GS_HEADERS,
                 timeout=30,
             )
             r.raise_for_status()
             data = r.json()
             items = data if isinstance(data, list) else data.get("matches", [])
+            print(f"      {q}: {len(items)} matches")
             for m in items:
                 matches[m["id"]] = m
         except Exception as e:
