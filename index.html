@@ -91,19 +91,20 @@
   .grouphd{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
   .grouphd img{width:20px;height:20px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
   .grouphd .gname{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);}
-  .game{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-    padding:13px 0;border-bottom:1px solid var(--rule);}
-  .game .matchup{font-size:15px;font-weight:500;color:var(--ink);}
-  .game .matchup .vs{color:var(--faint);font-weight:400;}
+  .game{display:block;padding:14px 0;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit;}
+  .game:hover .gevent{color:var(--accent);}
+  .gevent{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.01em;margin-bottom:9px;}
+  .scard{display:flex;flex-direction:column;gap:6px;}
+  .tline{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .tside{display:flex;align-items:center;gap:9px;min-width:0;}
+  .scard .crest{width:22px;height:22px;font-size:12px;}
+  .tn{font-size:15px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tline.mine .tn{color:var(--ink);font-weight:600;}
+  .tsc{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--muted);
+    font-variant-numeric:tabular-nums;flex:none;min-width:14px;text-align:right;}
+  .tsc.win{color:var(--win);} .tsc.loss{color:var(--loss);} .tsc.draw{color:var(--draw);}
   .game .when{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--faint);margin-top:4px;line-height:1.5;}
-  .result{display:flex;align-items:center;gap:8px;flex:none;}
-  .result .dot{width:7px;height:7px;border-radius:50%;flex:none;}
-  .result .sc{font-family:var(--mono);font-size:14px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums;}
-  .result.win .dot{background:var(--win);} .result.win .sc{color:var(--win);}
-  .result.loss .dot{background:var(--loss);} .result.loss .sc{color:var(--loss);}
-  .result.draw .dot{background:var(--draw);} .result.draw .sc{color:var(--draw);}
-  .upcoming{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);flex:none;}
+    color:var(--faint);margin-top:10px;line-height:1.5;}
 
   /* view controls */
   .controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;margin:16px 0 2px;}
@@ -469,12 +470,23 @@
     const d = new Date(g.match_time);
     return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
-  function resultBlock(g) {
-    if (g.team_score == null || g.opponent_score == null) return '<span class="upcoming">Upcoming</span>';
-    let cls = "draw";
-    if (g.team_score > g.opponent_score) cls = "win";
-    else if (g.team_score < g.opponent_score) cls = "loss";
-    return '<span class="result ' + cls + '"><span class="dot"></span><span class="sc">' + g.team_score + '–' + g.opponent_score + '</span></span>';
+  function resultCls(g) {
+    if (g.team_score == null || g.opponent_score == null) return "";
+    if (g.team_score > g.opponent_score) return "win";
+    if (g.team_score < g.opponent_score) return "loss";
+    return "draw";
+  }
+  // Link each game back to the gotSport page the score came from.
+  function gameUrl(g) {
+    if (g.event_id) return "https://system.gotsport.com/org_event/events/" + g.event_id + "/schedules";
+    return "https://rankings.gotsport.com/teams/" + encodeURIComponent(g.team_id);
+  }
+  function sideLine(side, rcls) {
+    const sc = side.score == null ? "" : side.score;
+    return '<div class="tline' + (side.mine ? " mine" : "") + '">'
+      + '<span class="tside">' + crest(side.logo)
+      + '<span class="tn">' + escapeHtml(side.name || "TBD") + '</span></span>'
+      + '<span class="tsc ' + (side.mine ? rcls : "") + '">' + sc + '</span></div>';
   }
 
   // ---- date/range filtering ----
@@ -498,20 +510,19 @@
     return false;
   }
 
-  function gameRow(g, showTeam) {
+  function gameRow(g) {
+    const mine = { name: teamNick(g.team_id) || g.team_name, logo: g.team_logo, score: g.team_score, mine: true };
+    const opp = { name: g.opponent_name, logo: g.opponent_logo, score: g.opponent_score, mine: false };
+    const home = g.is_home ? mine : opp;
+    const away = g.is_home ? opp : mine;
+    const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
       + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
-    let teamTag = "";
-    if (showTeam) {
-      const tn = escapeHtml(teamNick(g.team_id) || g.team_name || ("Team " + g.team_id));
-      teamTag = '<div class="gteam">'
-        + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : '<span class="ball">⚽</span>')
-        + tn + '</div>';
-    }
-    return '<div class="game"><div class="gleft">' + teamTag
-      + '<div class="matchup"><span class="vs">vs</span> ' + escapeHtml(g.opponent_name || "TBD") + '</div>'
-      + '<div class="when">' + meta + '</div></div>' + resultBlock(g) + '</div>';
+    return '<a class="game" href="' + gameUrl(g) + '" target="_blank" rel="noopener">'
+      + (g.event_name ? '<div class="gevent">' + escapeHtml(g.event_name) + '</div>' : "")
+      + '<div class="scard">' + sideLine(home, rcls) + sideLine(away, rcls) + '</div>'
+      + '<div class="when">' + meta + '</div></a>';
   }
 
   function renderGames() {
@@ -525,7 +536,7 @@
     });
     if (!list.length) { el.innerHTML = '<div class="empty">No games in this range.</div>'; return; }
     if (groupMode === "combined") {
-      el.innerHTML = list.map(g => gameRow(g, true)).join("");
+      el.innerHTML = list.map(g => gameRow(g)).join("");
     } else {
       const byTeam = {};
       for (const g of list) (byTeam[g.team_id] ||= []).push(g);
@@ -534,7 +545,7 @@
         return '<div class="teamgroup"><div class="grouphd">'
           + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
           + '<span class="gname">' + escapeHtml(label) + '</span></div>'
-          + gs.map(g => gameRow(g, false)).join("") + '</div>';
+          + gs.map(g => gameRow(g)).join("") + '</div>';
       }).join("");
     }
   }

@@ -114,6 +114,7 @@ def to_row(team_id, m):
         "venue_name": venue.get("name"),
         "venue_address": venue.get("full_address"),
         "field_name": pitch.get("name"),
+        "event_id": m.get("event_id"),
         "event_name": m.get("event_name"),
         "division_name": m.get("division_name"),
         "match_number": m.get("match_number"),
