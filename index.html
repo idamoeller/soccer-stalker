@@ -128,6 +128,38 @@
   .stepper button:hover{border-color:var(--ink);}
   .stepper b{font-weight:600;color:var(--ink);min-width:12px;text-align:center;font-size:11px;}
   .stepper .unit{color:var(--muted);}
+
+  /* header actions + sync */
+  .apphead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .appacts{display:flex;align-items:center;gap:16px;flex:none;}
+  .synclink{background:none;border:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);cursor:pointer;border-bottom:1px solid var(--accent-soft);padding:0 0 2px;}
+  .synclink:hover{border-bottom-color:var(--accent);}
+  .synclink:disabled{color:var(--muted);border-bottom-color:transparent;cursor:default;}
+  .menubtn{background:none;border:0;font-size:22px;line-height:1;color:var(--ink);cursor:pointer;padding:2px 2px 0;}
+
+  /* drawer menu */
+  .backdrop{position:fixed;inset:0;background:rgba(28,26,23,.30);z-index:40;}
+  .menu{position:fixed;top:0;right:0;bottom:0;width:min(90vw,392px);background:var(--paper);
+    border-left:1px solid var(--rule);box-shadow:-12px 0 36px rgba(28,26,23,.13);z-index:50;
+    display:flex;flex-direction:column;}
+  .menuhead{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:18px 22px;border-bottom:1px solid var(--rule);}
+  .menuhead .who{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .menux{background:none;border:0;font-size:24px;line-height:1;color:var(--muted);cursor:pointer;padding:0 2px;}
+  .menux:hover{color:var(--ink);}
+  .menuscroll{flex:1;overflow-y:auto;padding:2px 22px 44px;}
+  .ghostbtn{background:transparent;color:var(--ink);margin-top:30px;}
+  .ghostbtn:hover{background:var(--ink);color:var(--paper);}
+
+  /* inline team editing */
+  .mini{background:none;border:0;padding:2px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);cursor:pointer;flex:none;border-bottom:1px solid transparent;}
+  .mini:hover{border-bottom-color:var(--accent);}
+  .mini.cancel{color:var(--muted);}
+  .editin{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--ink);
+    font-family:var(--sans);font-size:16px;font-weight:500;color:var(--ink);padding:4px 0 6px;outline:none;}
 </style>
 </head>
 <body>
@@ -154,10 +186,12 @@
 
 <!-- ============ APP (logged in) ============ -->
 <div id="app" class="wrap" hidden>
-  <h1 class="brand"><span class="ball">⚽</span>Soccer Stalker</h1>
-  <div class="userbar">
-    <span class="who" id="who"></span>
-    <button class="underbtn" id="signOut" style="color:var(--muted);border-bottom-color:var(--rule);">Sign out</button>
+  <div class="apphead">
+    <h1 class="brand"><span class="ball">⚽</span>Soccer Stalker</h1>
+    <div class="appacts">
+      <button id="syncBtn" class="synclink" aria-label="Sync now">↻ Sync</button>
+      <button id="menuBtn" class="menubtn" aria-label="Menu">☰</button>
+    </div>
   </div>
 
   <section>
@@ -168,11 +202,6 @@
       <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
     <button class="primary" id="add">Follow team</button>
     <div id="addMsg" class="msg"></div>
-  </section>
-
-  <section>
-    <div class="sechead">Teams you follow</div>
-    <div id="teams"><div class="empty">Loading…</div></div>
   </section>
 
   <section>
@@ -197,6 +226,22 @@
   </section>
 </div>
 
+<!-- ============ MENU (drawer) ============ -->
+<div id="backdrop" class="backdrop" hidden></div>
+<aside id="menu" class="menu" hidden>
+  <div class="menuhead">
+    <span class="who" id="who"></span>
+    <button id="menuClose" class="menux" aria-label="Close menu">×</button>
+  </div>
+  <div class="menuscroll">
+    <section style="margin-top:22px;">
+      <div class="sechead">Teams you follow</div>
+      <div id="teams"><div class="empty">Loading…</div></div>
+    </section>
+    <button class="primary ghostbtn" id="signOut">Sign out</button>
+  </div>
+</aside>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function () {
@@ -208,6 +253,8 @@
   const $ = (id) => document.getElementById(id);
   let user = null;
   let authMode = "signin"; // or "signup"
+  let teamsCache = [];
+  let editingId = null;
 
   // ---- games view state (persisted per device) ----
   let allGames = [];
@@ -238,6 +285,24 @@
     return null;
   }
   function errmsg(e) { return (e && e.message) ? e.message : String(e); }
+  function friendlyError(e) {
+    const m = (e && (e.message || e.error_description || e.msg)) || String(e);
+    const low = String(m).toLowerCase();
+    const code = e && e.code;
+    if (code === "23505" || low.includes("duplicate") || low.includes("already exists")) return "You're already following this team.";
+    if (low.includes("row-level security")) return "Can't save that — you may already follow this team, or need to sign back in.";
+    if (low.includes("failed to fetch") || low.includes("network")) return "Network problem — check your connection and try again.";
+    if (low.includes("invalid login") || low.includes("invalid credentials")) return "Wrong email or password.";
+    if (low.includes("already registered") || low.includes("user already")) return "That email already has an account — try signing in instead.";
+    if (low.includes("password should")) return "Password too short — use at least 6 characters.";
+    if (low.includes("unable to validate email") || low.includes("invalid email")) return "That doesn't look like a valid email address.";
+    if (low.includes("email not confirmed")) return "Check your email to confirm your account first.";
+    return m;
+  }
+  function teamNick(teamId) {
+    const t = teamsCache.find(x => String(x.team_id) === String(teamId));
+    return t ? t.name : null;
+  }
 
   // ---------- auth UI ----------
   function renderAuthMode() {
@@ -274,7 +339,7 @@
       }
     } catch (e) {
       msg.className = "msg err";
-      msg.textContent = errmsg(e);
+      msg.textContent = friendlyError(e);
     } finally {
       $("authBtn").disabled = false;
     }
@@ -285,6 +350,8 @@
     user = null;
     $("app").hidden = true;
     $("auth").hidden = false;
+    $("menu").hidden = true;
+    $("backdrop").hidden = true;
   }
   function showLoggedIn(u) {
     user = u;
@@ -302,15 +369,20 @@
     const teamId = parseTeamId($("url").value);
     if (!teamId) {
       msg.className = "msg err";
-      msg.textContent = "Couldn't find a team ID. Paste a link like .../teams/781238/... or just the number.";
+      msg.textContent = "Couldn't find a team ID in that. Paste a link like rankings.gotsport.com/teams/781238/… or just the number.";
+      return;
+    }
+    const dup = teamsCache.find(t => String(t.team_id) === String(teamId));
+    if (dup) {
+      msg.className = "msg err";
+      msg.textContent = "You're already following this team (" + dup.name + "). Rename it in the menu (☰).";
       return;
     }
     const nick = $("nick").value.trim();
     $("add").disabled = true;
     try {
       const { error } = await sb.from("followed_teams")
-        .upsert({ team_id: teamId, name: nick || ("Team " + teamId), user_id: user.id },
-                { onConflict: "user_id,team_id" });
+        .insert({ team_id: teamId, name: nick || ("Team " + teamId), user_id: user.id });
       if (error) throw error;
       msg.className = "msg ok";
       msg.textContent = "Following team " + teamId + " — details & games fill in on the next sync.";
@@ -318,7 +390,7 @@
       loadTeams(); loadGames();
     } catch (e) {
       msg.className = "msg err";
-      msg.textContent = errmsg(e);
+      msg.textContent = friendlyError(e);
     } finally {
       $("add").disabled = false;
     }
@@ -332,7 +404,7 @@
       if (error) throw error;
       loadTeams(); loadGames();
     } catch (e) {
-      alert("Couldn't remove: " + errmsg(e));
+      alert(friendlyError(e));
     }
   }
 
@@ -342,22 +414,54 @@
   }
 
   async function loadTeams() {
-    const el = $("teams");
     const { data: teams, error } = await sb.from("followed_teams")
       .select("*").order("created_at", { ascending: false });
-    if (error) { el.innerHTML = '<div class="empty">Error: ' + escapeHtml(errmsg(error)) + '</div>'; return; }
-    if (!teams.length) { el.innerHTML = '<div class="empty">No teams yet.<br>Add one above.</div>'; return; }
-    el.innerHTML = teams.map(t => `
-      <div class="team">
-        ${crest(t.logo)}
-        <div class="info">
-          <div class="name">${escapeHtml(t.name)}</div>
-          <div class="tid">ID ${escapeHtml(t.team_id)}</div>
-        </div>
-        <button class="xbtn" data-team="${escapeHtml(t.team_id)}" data-name="${escapeHtml(t.name)}">Unfollow</button>
-      </div>`).join("");
-    el.querySelectorAll("button[data-team]").forEach(b =>
-      b.addEventListener("click", () => removeTeam(b.dataset.team, b.dataset.name)));
+    if (error) { $("teams").innerHTML = '<div class="empty">' + escapeHtml(friendlyError(error)) + '</div>'; return; }
+    teamsCache = teams || [];
+    renderTeams();
+  }
+
+  function renderTeams() {
+    const el = $("teams");
+    if (!teamsCache.length) { el.innerHTML = '<div class="empty">No teams yet.<br>Add one from the main screen.</div>'; return; }
+    el.innerHTML = teamsCache.map(t => {
+      const id = escapeHtml(t.team_id);
+      if (t.team_id === editingId) {
+        return '<div class="team">' + crest(t.logo)
+          + '<input class="editin" type="text" value="' + escapeHtml(t.name) + '" data-editinput>'
+          + '<button class="mini" data-save="' + id + '">Save</button>'
+          + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
+      }
+      return '<div class="team">' + crest(t.logo)
+        + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">ID ' + id + '</div></div>'
+        + '<button class="mini" data-edit="' + id + '">Rename</button>'
+        + '<button class="xbtn" data-team="' + id + '" data-name="' + escapeHtml(t.name) + '">Unfollow</button></div>';
+    }).join("");
+    el.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => {
+      editingId = b.dataset.edit; renderTeams();
+      const inp = el.querySelector("[data-editinput]"); if (inp) { inp.focus(); inp.select(); }
+    }));
+    el.querySelectorAll("[data-cancel]").forEach(b => b.addEventListener("click", () => { editingId = null; renderTeams(); }));
+    el.querySelectorAll("[data-save]").forEach(b => b.addEventListener("click", () => saveTeamName(b.dataset.save)));
+    el.querySelectorAll("[data-editinput]").forEach(inp => inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") saveTeamName(editingId);
+      else if (e.key === "Escape") { editingId = null; renderTeams(); }
+    }));
+    el.querySelectorAll("button[data-team]").forEach(b => b.addEventListener("click", () => removeTeam(b.dataset.team, b.dataset.name)));
+  }
+
+  async function saveTeamName(teamId) {
+    const inp = $("teams").querySelector("[data-editinput]");
+    const newName = inp ? inp.value.trim() : "";
+    if (!newName) { if (inp) inp.focus(); return; }
+    try {
+      const { error } = await sb.from("followed_teams").update({ name: newName })
+        .eq("team_id", teamId).eq("user_id", user.id);
+      if (error) throw error;
+      editingId = null;
+      await loadTeams();
+      loadGames();
+    } catch (e) { alert(friendlyError(e)); }
   }
 
   function fmtWhen(g) {
@@ -400,7 +504,7 @@
       + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
     let teamTag = "";
     if (showTeam) {
-      const tn = escapeHtml(g.team_name || ("Team " + g.team_id));
+      const tn = escapeHtml(teamNick(g.team_id) || g.team_name || ("Team " + g.team_id));
       teamTag = '<div class="gteam">'
         + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : '<span class="ball">⚽</span>')
         + tn + '</div>';
@@ -424,12 +528,14 @@
       el.innerHTML = list.map(g => gameRow(g, true)).join("");
     } else {
       const byTeam = {};
-      for (const g of list) (byTeam[g.team_name || g.team_id] ||= []).push(g);
-      el.innerHTML = Object.entries(byTeam).map(([team, gs]) =>
-        '<div class="teamgroup"><div class="grouphd">'
-        + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
-        + '<span class="gname">' + escapeHtml(team) + '</span></div>'
-        + gs.map(g => gameRow(g, false)).join("") + '</div>').join("");
+      for (const g of list) (byTeam[g.team_id] ||= []).push(g);
+      el.innerHTML = Object.entries(byTeam).map(([tid, gs]) => {
+        const label = teamNick(tid) || gs[0].team_name || ("Team " + tid);
+        return '<div class="teamgroup"><div class="grouphd">'
+          + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
+          + '<span class="gname">' + escapeHtml(label) + '</span></div>'
+          + gs.map(g => gameRow(g, false)).join("") + '</div>';
+      }).join("");
     }
   }
 
@@ -461,6 +567,23 @@
   $("add").addEventListener("click", addTeam);
   $("url").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
   $("nick").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+
+  // drawer menu
+  function closeMenu() { $("menu").hidden = true; $("backdrop").hidden = true; editingId = null; renderTeams(); }
+  $("menuBtn").addEventListener("click", () => { $("menu").hidden = false; $("backdrop").hidden = false; });
+  $("menuClose").addEventListener("click", closeMenu);
+  $("backdrop").addEventListener("click", closeMenu);
+
+  // sync now — for now this refreshes from the database; once the poller (backend)
+  // exists we'll first trigger the gotSport pull here, then reload.
+  async function syncNow() {
+    const b = $("syncBtn"); const orig = b.textContent;
+    b.disabled = true; b.textContent = "↻ Syncing…";
+    try { await loadTeams(); await loadGames(); b.textContent = "✓ Synced"; }
+    catch (e) { b.textContent = "Retry"; }
+    setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1400);
+  }
+  $("syncBtn").addEventListener("click", syncNow);
 
   document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
     groupMode = b.dataset.group; saveView(); syncControls(); renderGames();
