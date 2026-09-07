@@ -15,8 +15,10 @@
 //   gotSport name search (open ranking API — no auth, requires gender+age):
 //   gotsport-search?q=Scorpions&gender=f&age=13&page=1   (optional: state=MA, tier, filter_by)
 //
-// Deploy from the Supabase dashboard: Edge Functions -> Create -> name it
-// "ecnl-meta" -> paste this file -> Deploy.  (Its URL slug stays "meta-ecnl".)
+// Deploy from the Supabase dashboard: Edge Functions -> open the function whose
+// slug is "meta-ecnl" -> paste this file (replace all) -> Deploy.
+// (The deployed slug is "meta-ecnl"; the app calls /functions/v1/meta-ecnl.
+//  This repo folder is named ecnl-meta for historical reasons only.)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
