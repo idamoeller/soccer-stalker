@@ -168,6 +168,11 @@
     font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;
     max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .teamfilter button.on{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+  .drag{flex:none;cursor:grab;color:var(--faint);font-size:16px;line-height:1;padding:0 3px 0 0;
+    touch-action:none;user-select:none;-webkit-user-select:none;}
+  .drag:active{cursor:grabbing;}
+  .sortable-ghost{opacity:.35;}
+  .sortable-chosen .name{color:var(--accent);}
 </style>
 </head>
 <body>
@@ -251,6 +256,7 @@
   </div>
 </aside>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function () {
@@ -264,6 +270,7 @@
   let authMode = "signin"; // or "signup"
   let teamsCache = [];
   let editingId = null;
+  let sortable = null;                                       // SortableJS instance for the team list
   let clubsMap = {};                                         // team_id -> club_name
 
   // ---- games view state (persisted per device) ----
@@ -441,12 +448,27 @@
   }
 
   async function loadTeams() {
-    const { data: teams, error } = await sb.from("followed_teams")
-      .select("*").order("created_at", { ascending: false });
-    if (error) { $("teams").innerHTML = '<div class="empty">' + escapeHtml(friendlyError(error)) + '</div>'; return; }
-    teamsCache = teams || [];
+    let res = await sb.from("followed_teams").select("*")
+      .order("position", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
+    if (res.error) {   // `position` column may not exist yet — fall back
+      res = await sb.from("followed_teams").select("*").order("created_at", { ascending: true });
+    }
+    if (res.error) { $("teams").innerHTML = '<div class="empty">' + escapeHtml(friendlyError(res.error)) + '</div>'; return; }
+    teamsCache = res.data || [];
     renderTeams();
     renderTeamFilter();
+  }
+
+  async function saveTeamOrder() {
+    const ids = [...$("teams").querySelectorAll(".team")].map(r => r.dataset.id).filter(Boolean);
+    teamsCache.sort((a, b) => ids.indexOf(String(a.team_id)) - ids.indexOf(String(b.team_id)));
+    renderTeamFilter();
+    renderGames();
+    try {
+      await Promise.all(ids.map((id, i) =>
+        sb.from("followed_teams").update({ position: i }).eq("team_id", id).eq("user_id", user.id)));
+    } catch (e) { /* order still applied locally */ }
   }
 
   function renderTeamFilter() {
@@ -469,16 +491,21 @@
     el.innerHTML = teamsCache.map(t => {
       const id = escapeHtml(t.team_id);
       if (t.team_id === editingId) {
-        return '<div class="team">' + crest(t.logo)
+        return '<div class="team" data-id="' + id + '">' + crest(t.logo)
           + '<input class="editin" type="text" value="' + escapeHtml(t.name) + '" data-editinput>'
           + '<button class="mini" data-save="' + id + '">Save</button>'
           + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
       }
-      return '<div class="team">' + crest(t.logo)
+      return '<div class="team" data-id="' + id + '">'
+        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(t.logo)
         + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">ID ' + id + '</div></div>'
         + '<button class="mini" data-edit="' + id + '">Rename</button>'
         + '<button class="xbtn" data-team="' + id + '" data-name="' + escapeHtml(t.name) + '">Unfollow</button></div>';
     }).join("");
+    if (sortable) { sortable.destroy(); sortable = null; }
+    if (window.Sortable && !editingId && teamsCache.length > 1) {
+      sortable = window.Sortable.create(el, { handle: ".drag", animation: 150, onEnd: saveTeamOrder });
+    }
     el.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => {
       editingId = b.dataset.edit; renderTeams();
       const inp = el.querySelector("[data-editinput]"); if (inp) { inp.focus(); inp.select(); }
@@ -586,7 +613,12 @@
     } else {
       const byTeam = {};
       for (const g of list) (byTeam[g.team_id] ||= []).push(g);
-      el.innerHTML = Object.entries(byTeam).map(([tid, gs]) => {
+      const order = teamsCache.map(t => String(t.team_id));
+      const entries = Object.entries(byTeam).sort((a, b) => {
+        const ia = order.indexOf(a[0]), ib = order.indexOf(b[0]);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      });
+      el.innerHTML = entries.map(([tid, gs]) => {
         const label = teamNick(tid) || withClub(tid, gs[0].team_name) || ("Team " + tid);
         return '<div class="teamgroup"><div class="grouphd">'
           + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
