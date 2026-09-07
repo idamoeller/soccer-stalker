@@ -95,7 +95,8 @@
 
   /* games */
   .teamgroup{margin-top:30px;padding-top:26px;border-top:2px solid var(--ink);}
-  .teamgroup:first-child{margin-top:14px;padding-top:0;border-top:none;}
+  .teamgroup:first-child{margin-top:16px;padding-top:22px;border-top:2px solid var(--ink);}
+  #games > .game:first-child{border-top:2px solid var(--ink);margin-top:16px;padding-top:16px;}  /* combined mode divider */
   .grouphd{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
   .grouphd img{width:30px;height:30px;border-radius:3px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
   .grouphd .gname{font-family:var(--sans);font-size:19px;font-weight:600;letter-spacing:-.01em;color:var(--ink);line-height:1.15;}
@@ -169,18 +170,58 @@
   .mini.cancel{color:var(--muted);}
   .editin{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--ink);
     font-family:var(--sans);font-size:16px;font-weight:500;color:var(--ink);padding:4px 0 6px;outline:none;}
-  .teamfilter{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:14px 0 2px;}
-  .teamfilter:empty{display:none;}
-  .teamfilter .tflabel{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-right:3px;}
-  .teamfilter button{background:var(--white);border:1px solid var(--field);border-radius:2px;padding:6px 10px;
-    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;
-    max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .teamfilter button.on{background:var(--ink);border-color:var(--ink);color:var(--paper);}
   .drag{flex:none;cursor:grab;color:var(--faint);font-size:16px;line-height:1;padding:0 3px 0 0;
     touch-action:none;user-select:none;-webkit-user-select:none;}
   .drag:active{cursor:grabbing;}
   .sortable-ghost{opacity:.35;}
   .sortable-chosen .name{color:var(--accent);}
+
+  /* gotSport name search */
+  .gsrow{display:flex;gap:18px;}
+  .gsrow .field{flex:1;min-width:0;}
+  .gsresults{margin-top:10px;}
+  .gsresults:empty{display:none;}
+  .gshint{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);padding:10px 0 2px;line-height:1.6;}
+  .gsitem{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:0;
+    border-bottom:1px solid var(--rule);padding:11px 2px;cursor:pointer;}
+  .gsitem:hover{background:var(--white);}
+  .gsitem:disabled{cursor:default;opacity:.55;}
+  .gsitem .info{flex:1;min-width:0;}
+  .gsitem .gn{font-size:15px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .gsitem .gm{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+  .gsitem .plus{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);flex:none;}
+  .gsitem:disabled .plus{color:var(--faint);}
+  .gsfallback{margin-top:24px;}
+  .gsfallback summary{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);cursor:pointer;list-style:none;}
+  .gsfallback summary::-webkit-details-marker{display:none;}
+  .gsfallback summary::before{content:"+ ";color:var(--faint);}
+  .gsfallback[open] summary::before{content:"– ";}
+
+  /* team filter — excel-style dropdown */
+  .teamfilter{position:relative;margin:14px 0 2px;}
+  .teamfilter:empty{display:none;}
+  .tfbtn{display:inline-flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--field);
+    border-radius:2px;padding:8px 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-2);cursor:pointer;}
+  .tfbtn:hover{border-color:var(--ink);}
+  .tfbtn .tflabel{color:var(--faint);}
+  .tfbtn .tfcaret{color:var(--muted);font-size:8px;margin-left:1px;}
+  .tfpanel{position:absolute;z-index:30;top:calc(100% + 5px);left:0;min-width:232px;max-width:300px;
+    background:var(--paper);border:1px solid var(--field);border-radius:3px;
+    box-shadow:0 12px 32px rgba(28,26,23,.15);padding:10px;}
+  .tfsearch{width:100%;background:transparent;border:0;border-bottom:1px solid var(--field);
+    padding:5px 2px 7px;font-family:var(--sans);font-size:14px;color:var(--ink);outline:none;margin-bottom:6px;}
+  .tfsearch:focus{border-bottom-color:var(--ink);}
+  .tfquick{display:flex;gap:16px;padding:2px 2px 8px;border-bottom:1px solid var(--rule);margin-bottom:4px;}
+  .tfquick button{background:none;border:0;padding:0;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--accent);cursor:pointer;}
+  .tflist{max-height:244px;overflow-y:auto;}
+  .tfopt{display:flex;align-items:center;gap:10px;padding:7px 2px;cursor:pointer;font-size:14px;color:var(--ink);}
+  .tfopt input{flex:none;width:15px;height:15px;accent-color:var(--accent);}
+  .tfopt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tfopt.nomatch{display:none;}
 </style>
 </head>
 <body>
@@ -223,11 +264,24 @@
     </div>
 
     <div id="gotsportForm">
-      <label class="field"><span>gotSport team link · or team ID</span>
-        <input id="url" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
-      <label class="field"><span>Nickname · optional</span>
-        <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
-      <button class="primary" id="add">Follow team</button>
+      <div class="gsrow">
+        <label class="field"><span>Gender</span>
+          <select id="gsGender"><option value="">—</option><option value="f">Girls</option><option value="m">Boys</option></select></label>
+        <label class="field"><span>Age group</span>
+          <select id="gsAge"><option value="">—</option></select></label>
+      </div>
+      <label class="field"><span>Team or club name</span>
+        <input id="gsQuery" type="text" placeholder="e.g. Scorpions" autocomplete="off"></label>
+      <button class="primary" id="gsSearch">Search</button>
+      <div id="gsResults" class="gsresults"></div>
+      <details class="gsfallback">
+        <summary>or paste a team link / ID</summary>
+        <label class="field"><span>gotSport team link · or team ID</span>
+          <input id="url" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
+        <label class="field"><span>Nickname · optional</span>
+          <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
+        <button class="primary" id="add">Follow team</button>
+      </details>
     </div>
 
     <div id="ecnlForm" hidden>
@@ -503,18 +557,60 @@
     } catch (e) { /* order still applied locally */ }
   }
 
+  let tfOpen = false;
+  function tfLabel() {
+    const total = teamsCache.length;
+    const shown = teamsCache.filter(t => !hiddenTeams.has(String(t.team_id))).length;
+    return shown === total ? ("All " + total + " teams") : (shown + " of " + total + " shown");
+  }
+  function updateTfLabel() {
+    const b = $("tfBtn"); if (!b) return;
+    b.innerHTML = '<span class="tflabel">Show</span> ' + escapeHtml(tfLabel()) + ' <span class="tfcaret">▾</span>';
+  }
   function renderTeamFilter() {
     const el = $("teamFilter");
-    if (!teamsCache.length) { el.innerHTML = ""; return; }
-    el.innerHTML = '<span class="tflabel">Show</span>' + teamsCache.map(t => {
-      const on = !hiddenTeams.has(String(t.team_id));
-      return '<button' + (on ? ' class="on"' : '') + ' data-team="' + escapeHtml(t.team_id) + '">' + escapeHtml(t.name) + '</button>';
-    }).join("");
-    el.querySelectorAll("[data-team]").forEach(b => b.addEventListener("click", () => {
-      const id = String(b.dataset.team);
-      if (hiddenTeams.has(id)) hiddenTeams.delete(id); else hiddenTeams.add(id);
-      saveView(); renderTeamFilter(); renderGames();
+    if (!teamsCache.length) { el.innerHTML = ""; tfOpen = false; return; }
+    const showSearch = teamsCache.length > 8;
+    el.innerHTML =
+      '<button class="tfbtn" id="tfBtn" aria-expanded="' + tfOpen + '"><span class="tflabel">Show</span> '
+        + escapeHtml(tfLabel()) + ' <span class="tfcaret">▾</span></button>'
+      + '<div class="tfpanel" id="tfPanel"' + (tfOpen ? '' : ' hidden') + '>'
+        + (showSearch ? '<input class="tfsearch" id="tfSearch" type="text" placeholder="Filter teams…" autocomplete="off">' : '')
+        + '<div class="tfquick"><button data-tfq="all">Select all</button><button data-tfq="none">Clear</button></div>'
+        + '<div class="tflist">'
+        + teamsCache.map(t => {
+            const id = String(t.team_id);
+            const on = !hiddenTeams.has(id);
+            return '<label class="tfopt" data-name="' + escapeHtml((t.name || "").toLowerCase()) + '">'
+              + '<input type="checkbox" data-team="' + escapeHtml(id) + '"' + (on ? ' checked' : '') + '>'
+              + '<span>' + escapeHtml(t.name) + '</span></label>';
+          }).join("")
+        + '</div></div>';
+
+    $("tfBtn").addEventListener("click", (e) => { e.stopPropagation(); tfOpen = !tfOpen; renderTeamFilter(); });
+    const panel = $("tfPanel");
+    if (!panel) return;
+    panel.addEventListener("click", e => e.stopPropagation());   // clicks inside keep it open
+    panel.querySelectorAll("input[data-team]").forEach(cb => cb.addEventListener("change", () => {
+      const id = String(cb.dataset.team);
+      if (cb.checked) hiddenTeams.delete(id); else hiddenTeams.add(id);
+      saveView(); renderGames(); updateTfLabel();
     }));
+    panel.querySelectorAll("[data-tfq]").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.tfq === "all") hiddenTeams.clear();
+      else teamsCache.forEach(t => hiddenTeams.add(String(t.team_id)));
+      saveView(); renderGames();
+      panel.querySelectorAll("input[data-team]").forEach(cb => cb.checked = !hiddenTeams.has(String(cb.dataset.team)));
+      updateTfLabel();
+    }));
+    const s = $("tfSearch");
+    if (s) {
+      s.addEventListener("input", () => {
+        const q = s.value.trim().toLowerCase();
+        panel.querySelectorAll(".tfopt").forEach(o => o.classList.toggle("nomatch", !!q && !o.dataset.name.includes(q)));
+      });
+      if (tfOpen) s.focus();
+    }
   }
 
   function renderTeams() {
@@ -760,10 +856,17 @@
   });
   $("ecAge").addEventListener("change", () => {
     resetEc("Flight"); const age = $("ecAge").value; if (!age) return;
-    if (ecState.hasFlights) {
-      $("ecFlightWrap").hidden = false;
-      metaFetch("flights", { org: ecState.org, conf: ecState.conf, age }).then(d => setOptions($("ecFlight"), d.flights, "— select —")).catch(e => ecMsg(errmsg(e), true));
-    } else { ecLoadTeams(age); }   // div = age for ECNL (no flights)
+    if (!ecState.hasFlights) { ecLoadTeams(age); return; }   // div = age for ECNL (no flights)
+    // Pre-ECNL / RL: flights vary by age — only show the step if this age actually has flights.
+    metaFetch("flights", { org: ecState.org, conf: ecState.conf, age }).then(d => {
+      if (d.flights && d.flights.length) {
+        $("ecFlightWrap").hidden = false;
+        setOptions($("ecFlight"), d.flights, "— select —");
+      } else {
+        $("ecFlightWrap").hidden = true;
+        ecLoadTeams(age);                                     // no flights at this age → div = age
+      }
+    }).catch(e => ecMsg(errmsg(e), true));
   });
   $("ecFlight").addEventListener("change", () => { resetEc("Team"); const f = $("ecFlight").value; if (f) ecLoadTeams(f); });
   $("ecTeam").addEventListener("change", () => { $("ecAdd").disabled = !$("ecTeam").value; });
@@ -777,6 +880,69 @@
   $("add").addEventListener("click", addTeam);
   $("url").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
   $("nick").addEventListener("keydown", e => { if (e.key === "Enter") addTeam(); });
+
+  // ---------- gotSport name search (fed by the meta-ecnl proxy) ----------
+  (function fillGsAges() {
+    let html = '<option value="">—</option>';
+    for (let a = 8; a <= 19; a++) html += '<option value="' + a + '">U' + a + '</option>';
+    $("gsAge").innerHTML = html;
+  })();
+  let gsResults = [];
+  async function gsSearch() {
+    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = "";
+    const gender = $("gsGender").value, age = $("gsAge").value, q = $("gsQuery").value.trim();
+    if (!gender || !age) { msg.className = "msg err"; msg.textContent = "Pick a gender and age group first."; return; }
+    if (!q) { msg.className = "msg err"; msg.textContent = "Type a team or club name to search."; return; }
+    $("gsResults").innerHTML = '<div class="gshint">Searching…</div>';
+    $("gsSearch").disabled = true;
+    try {
+      const d = await metaFetch("gotsport-search", { q, gender, age });
+      gsResults = d.teams || [];
+      renderGsResults(d.pagination);
+    } catch (e) { $("gsResults").innerHTML = ""; msg.className = "msg err"; msg.textContent = errmsg(e); }
+    finally { $("gsSearch").disabled = false; }
+  }
+  function renderGsResults(pg) {
+    const el = $("gsResults");
+    if (!gsResults.length) { el.innerHTML = '<div class="gshint">No teams found — try a different spelling.</div>'; return; }
+    let html = gsResults.map((t, i) => {
+      const following = teamsCache.some(x => String(x.team_id) === String(t.teamId));
+      const meta = [t.clubName, t.state].filter(Boolean).join(" · ");
+      return '<button class="gsitem" data-i="' + i + '"' + (following ? ' disabled' : '') + '>'
+        + crest(t.logo)
+        + '<div class="info"><div class="gn">' + escapeHtml(t.name) + '</div>'
+        + (meta ? '<div class="gm">' + escapeHtml(meta) + '</div>' : '') + '</div>'
+        + '<span class="plus">' + (following ? 'following' : '+ follow') + '</span></button>';
+    }).join("");
+    const total = pg && pg.total_count;
+    if (total && total > gsResults.length) html += '<div class="gshint">Showing ' + gsResults.length + ' of ' + total + ' — refine the name to narrow it down.</div>';
+    el.innerHTML = html;
+    el.querySelectorAll(".gsitem").forEach(b => b.addEventListener("click", () => followGotsport(gsResults[+b.dataset.i])));
+  }
+  async function followGotsport(t) {
+    if (!t) return;
+    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = "";
+    if (teamsCache.some(x => String(x.team_id) === String(t.teamId))) {
+      msg.className = "msg err"; msg.textContent = "You already follow that team."; return;
+    }
+    try {
+      const { error } = await sb.from("followed_teams")
+        .insert({ team_id: String(t.teamId), name: t.name, user_id: user.id, source: "gotsport" });
+      if (error) throw error;
+      msg.className = "msg ok"; msg.textContent = "Following " + t.name + " — games fill in on the next sync.";
+      await loadTeams(); renderGsResults(); loadGames();
+    } catch (e) { msg.className = "msg err"; msg.textContent = friendlyError(e); }
+  }
+  $("gsSearch").addEventListener("click", gsSearch);
+  $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
+
+  // close the team-filter dropdown on any outside click
+  document.addEventListener("click", () => {
+    if (!tfOpen) return;
+    tfOpen = false;
+    const p = $("tfPanel"); if (p) p.hidden = true;
+    const b = $("tfBtn"); if (b) b.setAttribute("aria-expanded", "false");
+  });
 
   // drawer menu
   function closeMenu() { $("menu").hidden = true; $("backdrop").hidden = true; editingId = null; renderTeams(); }
