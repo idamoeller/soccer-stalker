@@ -1157,16 +1157,35 @@
     $("gsResults").innerHTML = '<div class="gshint">Searching…</div>';
     $("gsSearch").disabled = true;
     try {
+      // gotSport matches the name as a literal substring, so a multi-word query
+      // like "select nal" (expecting "Select … NAL") finds nothing. If that
+      // happens, re-search the strongest single word and filter locally so the
+      // words can appear in any order / anywhere in the club+team name.
       const d = await metaFetch("gotsport-search", { q, gender, age });
-      gsResults = d.teams || [];
-      renderGsResults(d.pagination);
+      let teams = d.teams || [], pag = d.pagination, note = "";
+      const words = q.split(/\s+/).filter(Boolean);
+      if (!teams.length && words.length > 1) {
+        const base = words.slice().sort((a, b) => b.length - a.length)[0];
+        const d2 = await metaFetch("gotsport-search", { q: base, gender, age });
+        const all = d2.teams || []; pag = d2.pagination;
+        const toks = words.map(w => w.toLowerCase());
+        const hit = all.filter(t => {
+          const hay = ((t.clubName || "") + " " + (t.name || "")).toLowerCase();
+          return toks.every(w => hay.includes(w));
+        });
+        if (hit.length) { teams = hit; note = 'Matches for “' + q + '”.'; }
+        else { teams = all; note = 'No exact “' + q + '”. Showing “' + base + '” — pick from these or refine.'; }
+      }
+      gsResults = teams;
+      renderGsResults(pag, note);
     } catch (e) { $("gsResults").innerHTML = ""; msg.className = "msg err"; msg.textContent = errmsg(e); }
     finally { $("gsSearch").disabled = false; }
   }
-  function renderGsResults(pg) {
+  function renderGsResults(pg, note) {
     const el = $("gsResults");
-    if (!gsResults.length) { el.innerHTML = '<div class="gshint">No teams found — try a different spelling.</div>'; return; }
-    let html = gsResults.map((t, i) => {
+    if (!gsResults.length) { el.innerHTML = '<div class="gshint">No teams found — try just the club name (one word), e.g. “Select”. Results are limited to the gender + age you picked.</div>'; return; }
+    const noteHtml = note ? '<div class="gshint">' + escapeHtml(note) + '</div>' : '';
+    let html = noteHtml + gsResults.map((t, i) => {
       const following = teamsCache.some(x => String(x.team_id) === String(t.teamId));
       const meta = [t.clubName, t.state].filter(Boolean).join(" · ");
       return '<button class="gsitem" data-i="' + i + '"' + (following ? ' disabled' : '') + '>'
