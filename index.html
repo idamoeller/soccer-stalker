@@ -197,6 +197,7 @@
   .mini.cancel{color:var(--muted);}
   .editin{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--ink);
     font-family:var(--sans);font-size:16px;font-weight:500;color:var(--ink);padding:4px 0 6px;outline:none;}
+  .linksel{font-size:13px;margin-top:3px;-webkit-appearance:none;appearance:none;cursor:pointer;}
   .drag{flex:none;cursor:grab;color:var(--faint);font-size:16px;line-height:1;padding:0 3px 0 0;
     touch-action:none;user-select:none;-webkit-user-select:none;}
   .drag:active{cursor:grabbing;}
@@ -387,6 +388,7 @@
   let authMode = "signin"; // or "signup"
   let teamsCache = [];
   let editingId = null;
+  let linkingId = null;                                      // team currently choosing who to link to
   let sortable = null;                                       // SortableJS instance for the team list
   let clubsMap = {};                                         // team_id -> club_name
 
@@ -455,6 +457,49 @@
       for (const c of (data || [])) if (c.club_name) map[String(c.team_id)] = c.club_name;
       clubsMap = map;
     } catch (e) { clubsMap = {}; }   // table may not exist yet — degrade gracefully
+  }
+
+  // ---- team grouping (linked teams shown as one) ----------------------------
+  // A team's group key = its group_id, or its own team_id when unlinked. Linked
+  // teams all carry group_id = the primary team's team_id, so the primary is the
+  // member whose team_id equals the key. Everything (games, filter, record)
+  // groups by this key, so two follows for one real team read as one.
+  function groupKeyOf(t) {
+    if (t && typeof t === "object") return String(t.group_id || t.team_id);
+    const row = teamsCache.find(x => String(x.team_id) === String(t));
+    return row ? String(row.group_id || row.team_id) : String(t);
+  }
+  function groupMembers(key) { return teamsCache.filter(x => groupKeyOf(x) === String(key)); }
+  function groupPrimary(key) {
+    const members = groupMembers(key);
+    return members.find(x => String(x.team_id) === String(key)) || members[0] || null;
+  }
+  function teamGroups() {   // ordered, deduped groups following teamsCache order
+    const seen = new Set(), out = [];
+    for (const t of teamsCache) {
+      const k = groupKeyOf(t);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ key: k, primary: groupPrimary(k), members: groupMembers(k) });
+    }
+    return out;
+  }
+  function groupLabel(key) {
+    const p = groupPrimary(key);
+    return (p && p.name) || ("Team " + key);
+  }
+  function isLinked(key) { return groupMembers(key).length > 1; }
+  function groupRecord(ids) {
+    const set = new Set(ids.map(String));
+    let w = 0, l = 0, t = 0;
+    for (const g of allGames) {
+      if (!set.has(String(g.team_id)) || isPlaceholder(g)) continue;
+      if (g.team_score == null || g.opponent_score == null) continue;
+      if (g.team_score > g.opponent_score) w++;
+      else if (g.team_score < g.opponent_score) l++;
+      else t++;
+    }
+    return { w, l, t };
   }
 
   // ---------- auth UI ----------
@@ -555,6 +600,9 @@
       const { error } = await sb.from("followed_teams").delete()
         .eq("team_id", teamId).eq("user_id", user.id);
       if (error) throw error;
+      // if this team was a link primary, free its members so they don't orphan
+      await sb.from("followed_teams").update({ group_id: null })
+        .eq("group_id", String(teamId)).eq("user_id", user.id);
       loadTeams(); loadGames();
     } catch (e) {
       alert(friendlyError(e));
@@ -592,8 +640,9 @@
 
   let tfOpen = false;
   function tfLabel() {
-    const total = teamsCache.length;
-    const shown = teamsCache.filter(t => !hiddenTeams.has(String(t.team_id))).length;
+    const groups = teamGroups();
+    const total = groups.length;
+    const shown = groups.filter(gr => !hiddenTeams.has(gr.key)).length;
     return shown === total ? ("All " + total + " teams") : (shown + " of " + total + " shown");
   }
   function updateTfLabel() {
@@ -603,7 +652,8 @@
   function renderTeamFilter() {
     const el = $("teamFilter");
     if (!teamsCache.length) { el.innerHTML = ""; tfOpen = false; return; }
-    const showSearch = teamsCache.length > 8;
+    const groups = teamGroups();
+    const showSearch = groups.length > 8;
     el.innerHTML =
       '<button class="tfbtn" id="tfBtn" aria-expanded="' + tfOpen + '"><span class="tflabel">Show</span> '
         + escapeHtml(tfLabel()) + ' <span class="tfcaret">▾</span></button>'
@@ -611,12 +661,13 @@
         + (showSearch ? '<input class="tfsearch" id="tfSearch" type="text" placeholder="Filter teams…" autocomplete="off">' : '')
         + '<div class="tfquick"><button data-tfq="all">Select all</button><button data-tfq="none">Clear</button></div>'
         + '<div class="tflist">'
-        + teamsCache.map(t => {
-            const id = String(t.team_id);
+        + groups.map(gr => {
+            const id = gr.key;
+            const name = groupLabel(id);
             const on = !hiddenTeams.has(id);
-            return '<label class="tfopt" data-name="' + escapeHtml((t.name || "").toLowerCase()) + '">'
+            return '<label class="tfopt" data-name="' + escapeHtml(name.toLowerCase()) + '">'
               + '<input type="checkbox" data-team="' + escapeHtml(id) + '"' + (on ? ' checked' : '') + '>'
-              + '<span>' + escapeHtml(t.name) + '</span></label>';
+              + '<span>' + escapeHtml(name) + '</span></label>';
           }).join("")
         + '</div></div>';
 
@@ -631,7 +682,7 @@
     }));
     panel.querySelectorAll("[data-tfq]").forEach(b => b.addEventListener("click", () => {
       if (b.dataset.tfq === "all") hiddenTeams.clear();
-      else teamsCache.forEach(t => hiddenTeams.add(String(t.team_id)));
+      else teamGroups().forEach(gr => hiddenTeams.add(gr.key));
       saveView(); renderGames();
       panel.querySelectorAll("input[data-team]").forEach(cb => cb.checked = !hiddenTeams.has(String(cb.dataset.team)));
       updateTfLabel();
@@ -657,10 +708,32 @@
           + '<button class="mini" data-save="' + id + '">Save</button>'
           + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
       }
+      if (t.team_id === linkingId) {
+        // choose which other team this one is the same as (that team becomes primary)
+        const myKey = groupKeyOf(t);
+        const opts = teamGroups().filter(gr => gr.key !== myKey)
+          .map(gr => '<option value="' + escapeHtml(gr.key) + '">' + escapeHtml(groupLabel(gr.key)) + '</option>').join("");
+        return '<div class="team" data-id="' + id + '">' + crest(t.logo)
+          + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div>'
+          + '<select class="editin linksel" data-linksel>'
+          + '<option value="">— same team as… —</option>' + opts + '</select></div>'
+          + '<button class="mini" data-linksave="' + id + '">Link</button>'
+          + '<button class="mini cancel" data-linkcancel="1">Cancel</button></div>';
+      }
+      const key = groupKeyOf(t);
+      const linked = isLinked(key);
+      const isPrimary = String(t.team_id) === key;
+      const sub = linked
+        ? (isPrimary ? 'Linked · ' + (groupMembers(key).length) + ' teams'
+                     : '↳ linked to ' + escapeHtml(groupLabel(key)))
+        : 'ID ' + id;
       return '<div class="team" data-id="' + id + '">'
         + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(t.logo)
-        + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">ID ' + id + '</div></div>'
+        + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">' + sub + '</div></div>'
         + '<button class="mini" data-edit="' + id + '">Rename</button>'
+        + (linked
+            ? '<button class="mini" data-unlink="' + escapeHtml(key) + '">Unlink</button>'
+            : '<button class="mini" data-link="' + id + '">Link</button>')
         + '<button class="xbtn" data-team="' + id + '" data-name="' + escapeHtml(t.name) + '">Unfollow</button></div>';
     }).join("");
     if (sortable) { sortable.destroy(); sortable = null; }
@@ -678,6 +751,48 @@
       else if (e.key === "Escape") { editingId = null; renderTeams(); }
     }));
     el.querySelectorAll("button[data-team]").forEach(b => b.addEventListener("click", () => removeTeam(b.dataset.team, b.dataset.name)));
+    el.querySelectorAll("[data-link]").forEach(b => b.addEventListener("click", () => { linkingId = b.dataset.link; editingId = null; renderTeams(); }));
+    el.querySelectorAll("[data-linkcancel]").forEach(b => b.addEventListener("click", () => { linkingId = null; renderTeams(); }));
+    el.querySelectorAll("[data-linksave]").forEach(b => b.addEventListener("click", () => {
+      const sel = el.querySelector("[data-linksel]");
+      const target = sel ? sel.value : "";
+      if (!target) { if (sel) sel.focus(); return; }
+      linkTeams(b.dataset.linksave, target);
+    }));
+    el.querySelectorAll("[data-unlink]").forEach(b => b.addEventListener("click", () => unlinkGroup(b.dataset.unlink)));
+  }
+
+  // Merge source's whole group into targetKey's group (target's primary wins).
+  async function linkTeams(sourceId, targetKey) {
+    const srcKey = groupKeyOf(sourceId);
+    if (String(srcKey) === String(targetKey)) { linkingId = null; renderTeams(); return; }
+    const movers = groupMembers(srcKey);
+    try {
+      const results = await Promise.all(movers.map(m =>
+        sb.from("followed_teams").update({ group_id: String(targetKey) })
+          .eq("team_id", m.team_id).eq("user_id", user.id).select()));
+      const changed = results.reduce((n, r) => n + ((r.data && r.data.length) || 0), 0);
+      if (!changed) {
+        alert("Couldn't link — Supabase is blocking the update (the \"own teams update\" policy is missing). Run that SQL, then try again.");
+        return;
+      }
+      linkingId = null;
+      await loadTeams();
+      loadGames();
+    } catch (e) { alert(friendlyError(e)); }
+  }
+
+  async function unlinkGroup(key) {
+    const members = groupMembers(key);
+    if (members.length < 2) return;
+    if (!confirm("Unlink these " + members.length + " teams? They'll show separately again.")) return;
+    try {
+      await Promise.all(members.map(m =>
+        sb.from("followed_teams").update({ group_id: null })
+          .eq("team_id", m.team_id).eq("user_id", user.id)));
+      await loadTeams();
+      loadGames();
+    } catch (e) { alert(friendlyError(e)); }
   }
 
   async function saveTeamName(teamId) {
@@ -814,7 +929,7 @@
     const el = $("games");
     if (!allGames.length) { el.innerHTML = '<div class="empty">No games synced yet.<br>They appear after the next background sync.</div>'; return; }
     if (!anyRange()) { el.innerHTML = '<div class="empty">Pick a filter — recent, upcoming, or history.</div>'; return; }
-    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(String(g.team_id)) && inRanges(g)).sort((a, b) => {
+    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && inRanges(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return da - db;
@@ -824,19 +939,23 @@
     if (groupMode === "combined") {
       el.innerHTML = compact ? compactTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
-      const byTeam = {};
-      for (const g of list) (byTeam[g.team_id] ||= []).push(g);
-      const order = teamsCache.map(t => String(t.team_id));
-      const entries = Object.entries(byTeam).sort((a, b) => {
+      // group by LINKED-team key, so two follows for one real team merge into one
+      const byGroup = {};
+      for (const g of list) (byGroup[groupKeyOf(g.team_id)] ||= []).push(g);
+      const order = teamGroups().map(gr => gr.key);
+      const entries = Object.entries(byGroup).sort((a, b) => {
         const ia = order.indexOf(a[0]), ib = order.indexOf(b[0]);
         return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
       });
-      el.innerHTML = entries.map(([tid, gs]) => {
-        const label = teamNick(tid) || withClub(tid, gs[0].team_name) || ("Team " + tid);
-        let head = '<div class="grouphd">'
-          + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "");
+      el.innerHTML = entries.map(([key, gs]) => {
+        const primary = groupPrimary(key);
+        const pid = primary ? primary.team_id : key;
+        const label = (primary && primary.name) || withClub(pid, gs[0].team_name) || ("Team " + key);
+        const logo = (primary && primary.logo) || (gs.find(x => x.team_logo) || {}).team_logo || gs[0].team_logo;
+        let head = '<div class="grouphd">' + (logo ? '<img src="' + logo + '" alt="">' : "");
         if (compact) {
-          const rec = teamRecord(tid);
+          const memberIds = groupMembers(key).map(m => String(m.team_id));
+          const rec = groupRecord(memberIds.length ? memberIds : [key]);
           const recTxt = (rec.w + rec.l + rec.t) ? ("Record: " + rec.w + "W-" + rec.l + "L-" + rec.t + "T") : "";
           head += '<div class="ghinfo"><span class="gname">' + escapeHtml(label) + '</span>'
             + (recTxt ? '<span class="grec">' + recTxt + '</span>' : "") + '</div>';
