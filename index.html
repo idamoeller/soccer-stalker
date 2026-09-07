@@ -115,6 +115,29 @@
   .game .when{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--faint);margin-top:10px;line-height:1.5;}
 
+  /* compact (dense table) view */
+  .grouphd .ghinfo{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .grec{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .ctable{width:100%;border-collapse:collapse;margin-top:4px;}
+  .ctable th{font-family:var(--mono);font-size:8px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);text-align:left;padding:0 7px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap;}
+  .ctable td{padding:8px 7px 8px 0;border-bottom:1px solid var(--rule);vertical-align:top;}
+  .ctable tr:last-child td{border-bottom:none;}
+  .crow{cursor:pointer;}
+  .crow:hover td{background:var(--white);}
+  .c-date{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:var(--ink-2);white-space:nowrap;}
+  .c-time{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);white-space:nowrap;margin-top:2px;}
+  .c-ha{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap;}
+  .c-opp{font-size:13px;font-weight:500;color:var(--ink);line-height:1.25;}
+  .c-team{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
+  .c-team img{width:13px;height:13px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
+  .c-res{font-family:var(--mono);font-size:12.5px;font-weight:600;white-space:nowrap;text-align:right;
+    font-variant-numeric:tabular-nums;color:var(--muted);}
+  .c-res.win{color:var(--win);} .c-res.loss{color:var(--loss);} .c-res.draw{color:var(--draw);}
+  .c-event{font-size:11px;color:var(--ink-2);line-height:1.3;}
+  .c-event .cdiv{font-family:var(--mono);font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+
   /* view controls */
   .controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;margin:16px 0 2px;}
   .seg{display:inline-flex;border:1px solid var(--field);border-radius:2px;overflow:hidden;}
@@ -310,6 +333,10 @@
         <button data-group="team">By team</button>
         <button data-group="combined">Combined</button>
       </div>
+      <div class="seg">
+        <button data-view="expanded">Expanded</button>
+        <button data-view="compact">Compact</button>
+      </div>
       <div class="chips">
         <button data-range="recent">Recent</button>
         <button data-range="upcoming">Upcoming</button>
@@ -362,6 +389,7 @@
   // ---- games view state (persisted per device) ----
   let allGames = [];
   let groupMode = "team";                                    // "team" | "combined"
+  let viewMode = "expanded";                                 // "expanded" | "compact"
   let ranges = { recent: true, upcoming: false, history: false };
   let recentBefore = 2, recentAfter = 2;                     // "Recent" window, in weeks
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
@@ -370,13 +398,14 @@
     const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
     if (saved) {
       if (saved.groupMode === "team" || saved.groupMode === "combined") groupMode = saved.groupMode;
+      if (saved.viewMode === "expanded" || saved.viewMode === "compact") viewMode = saved.viewMode;
       if (saved.ranges) ranges = Object.assign(ranges, saved.ranges);
       if (Number.isFinite(saved.recentBefore)) recentBefore = clampWk(saved.recentBefore);
       if (Number.isFinite(saved.recentAfter)) recentAfter = clampWk(saved.recentAfter);
       if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
   } catch (e) {}
-  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, ranges, recentBefore, recentAfter, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
+  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, ranges, recentBefore, recentAfter, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
 
   // ---------- helpers ----------
   function escapeHtml(s) {
@@ -689,6 +718,57 @@
       + '<span class="tsc ' + (side.mine ? rcls : "") + '">' + sc + '</span></div>';
   }
 
+  // ---- compact (dense table) view ----
+  function teamRecord(teamId) {
+    let w = 0, l = 0, t = 0;
+    for (const g of allGames) {
+      if (String(g.team_id) !== String(teamId) || isPlaceholder(g)) continue;
+      if (g.team_score == null || g.opponent_score == null) continue;
+      if (g.team_score > g.opponent_score) w++;
+      else if (g.team_score < g.opponent_score) l++;
+      else t++;
+    }
+    return { w, l, t };
+  }
+  function cDate(g) {
+    const d = gameDate(g);
+    return d ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) : "TBD";
+  }
+  function cTime(g) {
+    if (!g.match_time) return "";
+    const d = new Date(g.match_time);
+    return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  }
+  function cResult(g) {
+    if (g.team_score == null || g.opponent_score == null) return { txt: "–", cls: "" };
+    const cls = resultCls(g), letter = cls === "win" ? "W" : cls === "loss" ? "L" : "D";
+    return { txt: letter + " " + g.team_score + "-" + g.opponent_score, cls };
+  }
+  function compactRow(g, withTeam) {
+    const r = cResult(g);
+    const ha = g.is_home === true ? "Home" : g.is_home === false ? "Away" : "";
+    const teamCell = withTeam
+      ? '<div class="c-team">' + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : "")
+        + escapeHtml(teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "") + '</div>'
+      : "";
+    const div = g.division_name ? '<div class="cdiv">' + escapeHtml(g.division_name) + '</div>' : "";
+    return '<tr class="crow" data-url="' + escapeHtml(gameUrl(g)) + '">'
+      + '<td><span class="c-date">' + escapeHtml(cDate(g)) + '</span>'
+        + (cTime(g) ? '<div class="c-time">' + escapeHtml(cTime(g)) + '</div>' : "") + '</td>'
+      + '<td class="c-ha">' + ha + '</td>'
+      + '<td>' + teamCell + '<div class="c-opp">' + escapeHtml(withClub(g.opponent_id, g.opponent_name) || "TBD") + '</div></td>'
+      + '<td class="c-res ' + r.cls + '">' + escapeHtml(r.txt) + '</td>'
+      + '<td class="c-event">' + escapeHtml(g.event_name || "") + div + '</td>'
+      + '</tr>';
+  }
+  function compactTable(games, withTeam) {
+    return '<table class="ctable"><thead><tr>'
+      + '<th>Date</th><th>H/A</th><th>' + (withTeam ? "Team · Opponent" : "Opponent") + '</th><th style="text-align:right">Result</th><th>Event</th>'
+      + '</tr></thead><tbody>'
+      + games.map(g => compactRow(g, withTeam)).join("")
+      + '</tbody></table>';
+  }
+
   // ---- date/range filtering ----
   function gameDate(g) {
     if (g.match_time) { const d = new Date(g.match_time); return isNaN(d) ? null : d; }
@@ -740,8 +820,9 @@
       return da - db;
     });
     if (!list.length) { el.innerHTML = '<div class="empty">No games in this range.</div>'; return; }
+    const compact = viewMode === "compact";
     if (groupMode === "combined") {
-      el.innerHTML = list.map(g => gameRow(g)).join("");
+      el.innerHTML = compact ? compactTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
       const byTeam = {};
       for (const g of list) (byTeam[g.team_id] ||= []).push(g);
@@ -752,16 +833,28 @@
       });
       el.innerHTML = entries.map(([tid, gs]) => {
         const label = teamNick(tid) || withClub(tid, gs[0].team_name) || ("Team " + tid);
-        return '<div class="teamgroup"><div class="grouphd">'
-          + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
-          + '<span class="gname">' + escapeHtml(label) + '</span></div>'
-          + gs.map(g => gameRow(g)).join("") + '</div>';
+        let head = '<div class="grouphd">'
+          + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "");
+        if (compact) {
+          const rec = teamRecord(tid);
+          const recTxt = (rec.w + rec.l + rec.t) ? ("Record: " + rec.w + "W-" + rec.l + "L-" + rec.t + "T") : "";
+          head += '<div class="ghinfo"><span class="gname">' + escapeHtml(label) + '</span>'
+            + (recTxt ? '<span class="grec">' + recTxt + '</span>' : "") + '</div>';
+        } else {
+          head += '<span class="gname">' + escapeHtml(label) + '</span>';
+        }
+        head += '</div>';
+        return '<div class="teamgroup">' + head
+          + (compact ? compactTable(gs, false) : gs.map(g => gameRow(g)).join("")) + '</div>';
       }).join("");
     }
   }
 
   function syncControls() {
-    document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.group === groupMode));
+    document.querySelectorAll(".seg button").forEach(b => {
+      if (b.dataset.group) b.classList.toggle("on", b.dataset.group === groupMode);
+      if (b.dataset.view) b.classList.toggle("on", b.dataset.view === viewMode);
+    });
     document.querySelectorAll(".chips button").forEach(b => b.classList.toggle("on", !!ranges[b.dataset.range]));
     $("recentPick").hidden = !ranges.recent;
     $("rpBefore").textContent = recentBefore;
@@ -967,8 +1060,15 @@
   $("syncBtn").addEventListener("click", syncNow);
 
   document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
-    groupMode = b.dataset.group; saveView(); syncControls(); renderGames();
+    if (b.dataset.group) groupMode = b.dataset.group;
+    if (b.dataset.view) viewMode = b.dataset.view;
+    saveView(); syncControls(); renderGames();
   }));
+  // open a compact-table row's source page
+  $("games").addEventListener("click", e => {
+    const tr = e.target.closest(".crow[data-url]");
+    if (tr) window.open(tr.dataset.url, "_blank", "noopener");
+  });
   document.querySelectorAll(".chips button").forEach(b => b.addEventListener("click", () => {
     ranges[b.dataset.range] = !ranges[b.dataset.range]; saveView(); syncControls(); renderGames();
   }));
