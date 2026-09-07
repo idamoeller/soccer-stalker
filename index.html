@@ -86,11 +86,11 @@
     color:var(--faint);padding:22px 0;text-align:center;line-height:1.7;}
 
   /* games */
-  .teamgroup{margin-top:22px;}
-  .teamgroup:first-child{margin-top:16px;}
-  .grouphd{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
-  .grouphd img{width:20px;height:20px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
-  .grouphd .gname{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);}
+  .teamgroup{margin-top:30px;padding-top:26px;border-top:2px solid var(--ink);}
+  .teamgroup:first-child{margin-top:14px;padding-top:0;border-top:none;}
+  .grouphd{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
+  .grouphd img{width:30px;height:30px;border-radius:3px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
+  .grouphd .gname{font-family:var(--sans);font-size:19px;font-weight:600;letter-spacing:-.01em;color:var(--ink);line-height:1.15;}
   .game{display:block;padding:14px 0;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit;}
   .game:hover .gevent{color:var(--accent);}
   .gevent{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.01em;margin-bottom:9px;}
@@ -256,6 +256,7 @@
   let authMode = "signin"; // or "signup"
   let teamsCache = [];
   let editingId = null;
+  let clubsMap = {};                                         // team_id -> club_name
 
   // ---- games view state (persisted per device) ----
   let allGames = [];
@@ -303,6 +304,21 @@
   function teamNick(teamId) {
     const t = teamsCache.find(x => String(x.team_id) === String(teamId));
     return t ? t.name : null;
+  }
+  // Prepend the club name unless it's already part of the team name.
+  function withClub(teamId, name) {
+    if (!name) return name || "";
+    const club = clubsMap[String(teamId)];
+    if (club && !name.toLowerCase().includes(club.toLowerCase())) return club + " " + name;
+    return name;
+  }
+  async function loadClubs() {
+    try {
+      const { data } = await sb.from("clubs").select("team_id,club_name");
+      const map = {};
+      for (const c of (data || [])) if (c.club_name) map[String(c.team_id)] = c.club_name;
+      clubsMap = map;
+    } catch (e) { clubsMap = {}; }   // table may not exist yet — degrade gracefully
   }
 
   // ---------- auth UI ----------
@@ -360,7 +376,7 @@
     $("app").hidden = false;
     $("who").textContent = u.email;
     loadTeams();
-    loadGames();
+    loadClubs().then(loadGames);
   }
 
   // ---------- data ----------
@@ -516,8 +532,8 @@
   }
 
   function gameRow(g) {
-    const mine = { name: teamNick(g.team_id) || g.team_name, logo: g.team_logo, score: g.team_score, mine: true };
-    const opp = { name: g.opponent_name, logo: g.opponent_logo, score: g.opponent_score, mine: false };
+    const mine = { name: teamNick(g.team_id) || withClub(g.team_id, g.team_name), logo: g.team_logo, score: g.team_score, mine: true };
+    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: g.opponent_logo, score: g.opponent_score, mine: false };
     const home = g.is_home ? mine : opp;
     const away = g.is_home ? opp : mine;
     const rcls = resultCls(g);
@@ -546,7 +562,7 @@
       const byTeam = {};
       for (const g of list) (byTeam[g.team_id] ||= []).push(g);
       el.innerHTML = Object.entries(byTeam).map(([tid, gs]) => {
-        const label = teamNick(tid) || gs[0].team_name || ("Team " + tid);
+        const label = teamNick(tid) || withClub(tid, gs[0].team_name) || ("Team " + tid);
         return '<div class="teamgroup"><div class="grouphd">'
           + (gs[0].team_logo ? '<img src="' + gs[0].team_logo + '" alt="">' : "")
           + '<span class="gname">' + escapeHtml(label) + '</span></div>'
@@ -600,7 +616,7 @@
       const { error } = await sb.functions.invoke("sync", { method: "POST" });
       if (!error) live = true;                 // real gotSport pull succeeded
     } catch (e) { /* sync function not deployed yet — fall back to a refresh */ }
-    try { await loadTeams(); await loadGames(); } catch (e) {}
+    try { await loadTeams(); await loadClubs(); await loadGames(); } catch (e) {}
     b.textContent = live ? "✓ Synced" : "↻ Refreshed";
     setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1500);
   }

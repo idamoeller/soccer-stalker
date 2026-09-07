@@ -97,6 +97,14 @@ async function fetchMatches(teamId: string): Promise<any[]> {
   return [...merged.values()];
 }
 
+async function fetchClub(teamId: string): Promise<any | null> {
+  try {
+    const r = await fetch(`${GOTSPORT}/api/v1/team_ranking_data/team_details?team_id=${teamId}`, { headers: GS_HEADERS });
+    const d = await r.json();
+    return { team_id: String(teamId), club_name: d.club_name ?? null, team_name: d.name ?? null, updated_at: new Date().toISOString() };
+  } catch (_e) { return null; }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -130,5 +138,22 @@ Deno.serve(async (req: Request) => {
     const { error } = await admin.from("games").upsert(all.slice(i, i + 200), { onConflict: "match_id,team_id" });
     if (error) return json({ error: error.message, upserted: i }, 500);
   }
-  return json({ ok: true, teams: ids.length, games: all.length });
+
+  // Fill the clubs cache for any team (followed + opponents) we don't have yet.
+  let newClubs = 0;
+  try {
+    const refIds = new Set<string>();
+    for (const r of all) { if (r.team_id) refIds.add(String(r.team_id)); if (r.opponent_id) refIds.add(String(r.opponent_id)); }
+    const { data: known } = await admin.from("clubs").select("team_id");
+    const have = new Set((known ?? []).map((c: any) => String(c.team_id)));
+    const missing = [...refIds].filter((i) => !have.has(i));
+    const clubRows: any[] = [];
+    for (const i of missing) { const c = await fetchClub(i); if (c) clubRows.push(c); }
+    for (let i = 0; i < clubRows.length; i += 200) {
+      await admin.from("clubs").upsert(clubRows.slice(i, i + 200), { onConflict: "team_id" });
+    }
+    newClubs = clubRows.length;
+  } catch (_e) { /* clubs table may not exist yet */ }
+
+  return json({ ok: true, teams: ids.length, games: all.length, newClubs });
 });

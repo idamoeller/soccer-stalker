@@ -162,6 +162,51 @@ def upsert_games(rows):
         r.raise_for_status()
 
 
+def fetch_club(team_id):
+    try:
+        r = requests.get(f"{GOTSPORT}/api/v1/team_ranking_data/team_details",
+                         params={"team_id": team_id}, headers=GS_HEADERS, timeout=20)
+        r.raise_for_status()
+        d = r.json()
+        return {"team_id": str(team_id), "club_name": d.get("club_name"),
+                "team_name": d.get("name"), "updated_at": now_iso()}
+    except Exception as e:
+        print(f"    ! club fetch {team_id} failed: {e}")
+        return None
+
+
+def sync_clubs(rows):
+    """Populate the `clubs` cache for every team referenced (followed + opponents),
+    fetching team_details only for teams we don't already have."""
+    ids = set()
+    for r in rows:
+        if r.get("team_id"): ids.add(str(r["team_id"]))
+        if r.get("opponent_id"): ids.add(str(r["opponent_id"]))
+    have = set()
+    try:
+        resp = requests.get(f"{SUPABASE_URL}/rest/v1/clubs", headers=SB_HEADERS,
+                            params={"select": "team_id"}, timeout=30)
+        resp.raise_for_status()
+        have = {row["team_id"] for row in resp.json()}
+    except Exception as e:
+        print(f"  ! clubs read failed (table may not exist yet): {e}")
+        return
+    missing = [i for i in ids if i not in have]
+    print(f"Clubs: {len(ids)} referenced, {len(missing)} new to fetch")
+    club_rows = []
+    for i in missing:
+        c = fetch_club(i)
+        if c:
+            club_rows.append(c)
+        time.sleep(0.15)
+    for k in range(0, len(club_rows), 200):
+        rr = requests.post(f"{SUPABASE_URL}/rest/v1/clubs",
+                           headers={**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
+                           params={"on_conflict": "team_id"}, json=club_rows[k:k + 200], timeout=60)
+        if not rr.ok:
+            print(f"  ! clubs upsert failed {rr.status_code}: {rr.text[:200]}")
+
+
 def build_rows(team_ids):
     """Fetch + transform every team's matches into de-duped (match_id, team_id) rows."""
     all_rows = {}
@@ -202,6 +247,7 @@ def main():
     print(f"Upserting {len(rows)} game rows...")
     for i in range(0, len(rows), 200):
         upsert_games(rows[i:i + 200])
+    sync_clubs(rows)
     print("Done.")
 
 
