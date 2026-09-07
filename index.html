@@ -161,6 +161,13 @@
   .mini.cancel{color:var(--muted);}
   .editin{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--ink);
     font-family:var(--sans);font-size:16px;font-weight:500;color:var(--ink);padding:4px 0 6px;outline:none;}
+  .teamfilter{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:14px 0 2px;}
+  .teamfilter:empty{display:none;}
+  .teamfilter .tflabel{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-right:3px;}
+  .teamfilter button{background:var(--white);border:1px solid var(--field);border-radius:2px;padding:6px 10px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;
+    max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .teamfilter button.on{background:var(--ink);border-color:var(--ink);color:var(--paper);}
 </style>
 </head>
 <body>
@@ -223,6 +230,7 @@
       <span class="stepper"><button data-adj="before" data-d="-1" aria-label="less before">–</button><b id="rpBefore">2</b><span class="unit">w before</span><button data-adj="before" data-d="1" aria-label="more before">+</button></span>
       <span class="stepper"><button data-adj="after" data-d="-1" aria-label="less after">–</button><b id="rpAfter">2</b><span class="unit">w after</span><button data-adj="after" data-d="1" aria-label="more after">+</button></span>
     </div>
+    <div id="teamFilter" class="teamfilter"></div>
     <div id="games"><div class="empty">Loading…</div></div>
   </section>
 </div>
@@ -263,6 +271,7 @@
   let groupMode = "team";                                    // "team" | "combined"
   let ranges = { recent: true, upcoming: false, history: false };
   let recentBefore = 2, recentAfter = 2;                     // "Recent" window, in weeks
+  let hiddenTeams = new Set();                               // team_ids whose games are hidden
   function clampWk(n) { n = Math.round(Number(n)); return n < 0 ? 0 : (n > 52 ? 52 : n); }
   try {
     const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
@@ -271,9 +280,10 @@
       if (saved.ranges) ranges = Object.assign(ranges, saved.ranges);
       if (Number.isFinite(saved.recentBefore)) recentBefore = clampWk(saved.recentBefore);
       if (Number.isFinite(saved.recentAfter)) recentAfter = clampWk(saved.recentAfter);
+      if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
   } catch (e) {}
-  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, ranges, recentBefore, recentAfter })); } catch (e) {} }
+  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, ranges, recentBefore, recentAfter, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
 
   // ---------- helpers ----------
   function escapeHtml(s) {
@@ -436,6 +446,21 @@
     if (error) { $("teams").innerHTML = '<div class="empty">' + escapeHtml(friendlyError(error)) + '</div>'; return; }
     teamsCache = teams || [];
     renderTeams();
+    renderTeamFilter();
+  }
+
+  function renderTeamFilter() {
+    const el = $("teamFilter");
+    if (!teamsCache.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<span class="tflabel">Show</span>' + teamsCache.map(t => {
+      const on = !hiddenTeams.has(String(t.team_id));
+      return '<button' + (on ? ' class="on"' : '') + ' data-team="' + escapeHtml(t.team_id) + '">' + escapeHtml(t.name) + '</button>';
+    }).join("");
+    el.querySelectorAll("[data-team]").forEach(b => b.addEventListener("click", () => {
+      const id = String(b.dataset.team);
+      if (hiddenTeams.has(id)) hiddenTeams.delete(id); else hiddenTeams.add(id);
+      saveView(); renderTeamFilter(); renderGames();
+    }));
   }
 
   function renderTeams() {
@@ -550,7 +575,7 @@
     const el = $("games");
     if (!allGames.length) { el.innerHTML = '<div class="empty">No games synced yet.<br>They appear after the next background sync.</div>'; return; }
     if (!anyRange()) { el.innerHTML = '<div class="empty">Pick a filter — recent, upcoming, or history.</div>'; return; }
-    const list = allGames.filter(g => !isPlaceholder(g) && inRanges(g)).sort((a, b) => {
+    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(String(g.team_id)) && inRanges(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return da - db;
