@@ -45,7 +45,7 @@ GS_HEADERS = {
 
 # ECNL's API (athleteone) is origin-locked to theecnl.com.
 ECNL_HEADERS = {**GS_HEADERS, "Origin": "https://theecnl.com", "Referer": "https://theecnl.com/", "Accept": "*/*"}
-ECNL_LEAGUE = {9: "ECNL", 13: "ECNL RL"}
+ECNL_LEAGUE = {9: "ECNL", 13: "ECNL RL", 21: "Pre-ECNL"}
 MONTHS = {"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "Jun": "06",
           "Jul": "07", "Aug": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"}
 

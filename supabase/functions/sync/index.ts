@@ -85,7 +85,7 @@ function toRow(teamId: string, m: any): any {
 // ---------------- ECNL (TotalGlobalSports / AthleteOne) ----------------
 const ECNL = "https://api.athleteone.com/api/Script";
 const ECNL_HEADERS: Record<string, string> = { ...GS_HEADERS, "Origin": "https://theecnl.com", "Referer": "https://theecnl.com/", "Accept": "*/*" };
-const ECNL_LEAGUE: Record<number, string> = { 9: "ECNL", 13: "ECNL RL" };
+const ECNL_LEAGUE: Record<number, string> = { 9: "ECNL", 13: "ECNL RL", 21: "Pre-ECNL" };
 const MONTHS: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
 function unesc(s: string): string { return s.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">"); }
 function ecnlDate(s: string): string | null { const m = s.match(/([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/); return m ? `${m[3]}-${MONTHS[m[1]] || "01"}-${String(m[2]).padStart(2, "0")}` : null; }

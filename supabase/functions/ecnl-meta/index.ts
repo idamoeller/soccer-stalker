@@ -44,8 +44,12 @@ const CORS: Record<string, string> = {
 
 // Leagues we support (each is a distinct org + season in the TGS/AthleteOne system).
 const LEAGUES = [
-  { key: "ecnl-g",    name: "ECNL Girls",     org: 9,  season: 80, hasFlights: false },
-  { key: "ecnl-rl-g", name: "ECNL RL Girls",  org: 13, season: 82, hasFlights: true },
+  { key: "ecnl-g",     name: "ECNL Girls",      org: 9,  season: 80, hasFlights: false },
+  { key: "ecnl-rl-g",  name: "ECNL RL Girls",   org: 13, season: 82, hasFlights: true },
+  // Pre-ECNL Girls has flights (Pre-ECNL I/II) at SOME ages only (e.g. GU12 yes,
+  // GU11 no). The front-end checks the flights response per age, so hasFlights=true
+  // just means "there may be a flight step" — an empty flights list => skip it.
+  { key: "pre-ecnl-g", name: "Pre-ECNL Girls",  org: 21, season: 86, hasFlights: true },
 ];
 
 function json(body: unknown, status = 200): Response {
@@ -62,7 +66,8 @@ function parseOptions(html: string, selectId?: string): Array<{ id: string; name
   let body = html;
   if (selectId) {
     const m = html.match(new RegExp(`<select[^>]*id="${selectId}"[^>]*>([\\s\\S]*?)</select>`));
-    if (m) body = m[1];   // isolate the named <select> (needed when a fragment has several)
+    if (!m) return [];    // named <select> absent => no options (e.g. an age with no flights)
+    body = m[1];          // isolate the named <select> (a fragment can have several)
   }
   const out: Array<{ id: string; name: string }> = [];
   const seen = new Set<string>();
