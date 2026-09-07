@@ -21,13 +21,16 @@ import os
 import sys
 import time
 import json
+import re
 from datetime import datetime, timezone
+from html import unescape
 
 import requests
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 GOTSPORT = "https://system.gotsport.com"
+ATHLETEONE = "https://api.athleteone.com/api/Script"   # ECNL / TotalGlobalSports
 
 # Look like a real browser hitting the rankings site. From a datacenter IP
 # (GitHub Actions / serverless) gotSport bot-challenges bare requests to the
@@ -40,6 +43,12 @@ GS_HEADERS = {
     "Origin": "https://rankings.gotsport.com",
 }
 
+# ECNL's API (athleteone) is origin-locked to theecnl.com.
+ECNL_HEADERS = {**GS_HEADERS, "Origin": "https://theecnl.com", "Referer": "https://theecnl.com/", "Accept": "*/*"}
+ECNL_LEAGUE = {9: "ECNL", 13: "ECNL RL"}
+MONTHS = {"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "Jun": "06",
+          "Jul": "07", "Aug": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"}
+
 SB_HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -51,22 +60,16 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_followed_team_ids():
-    """Distinct team_ids across ALL users (the poller uses the secret key,
-    which bypasses RLS, so it sees every followed team)."""
+def get_followed_teams():
+    """All followed teams across ALL users (secret key bypasses RLS)."""
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/followed_teams",
         headers=SB_HEADERS,
-        params={"select": "team_id"},
+        params={"select": "team_id,name,source,ecnl_org,ecnl_conf,ecnl_club,ecnl_team"},
         timeout=30,
     )
     r.raise_for_status()
-    ids = []
-    for row in r.json():
-        tid = str(row["team_id"]).strip()
-        if tid and tid not in ids:
-            ids.append(tid)
-    return ids
+    return r.json()
 
 
 def fetch_matches(team_id):
@@ -143,6 +146,7 @@ def to_row(team_id, m):
         "event_name": m.get("event_name"),
         "division_name": m.get("division_name"),
         "match_number": m.get("match_number"),
+        "source": "gotsport",
         "updated_at": now_iso(),
     }
 
@@ -207,6 +211,78 @@ def sync_clubs(rows):
             print(f"  ! clubs upsert failed {rr.status_code}: {rr.text[:200]}")
 
 
+# ---------------- ECNL (TotalGlobalSports / AthleteOne) ----------------
+def _ecnl_date(s):
+    m = re.match(r"([A-Z][a-z]{2}) (\d{1,2}), (\d{4})", s or "")
+    return f"{m.group(3)}-{MONTHS.get(m.group(1), '01')}-{int(m.group(2)):02d}" if m else None
+
+
+def _ecnl_time24(s):
+    if not s or s.strip() == "12:00 AM":   # ECNL's "time TBD" placeholder
+        return None
+    m = re.match(r"(\d{1,2}):(\d{2})\s*([AP]M)", s or "")
+    if not m:
+        return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3) == "PM" else 0)
+    return f"{h:02d}:{m.group(2)}:00"
+
+
+def _split_venue(v):
+    if not v:
+        return None, None
+    parts = v.rsplit(" - ", 1)
+    return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (v.strip(), None)
+
+
+def parse_ecnl_games(html, team_id):
+    """Parse a team's games from get-individual-team-info HTML (the opponent is
+    the `individual-team-item` span; the followed team is implicit)."""
+    games = []
+    for m in re.finditer(r"<tr>(.*?)</tr>", html, re.S):
+        row = m.group(1)
+        mid = re.search(r'data-match-id="(\d+)"', row)
+        opp = re.search(r'individual-team-item"[^>]*data-club-id="(\d+)"[^>]*data-team-id="(\d+)"[^>]*>([^<]+)</span>', row)
+        if not (mid and opp) or opp.group(2) == str(team_id):
+            continue
+        ha = re.search(r"min-height:\s*63px;[^>]*>\s*([HA])\s*</div>", row)
+        date = re.search(r"<div>([A-Z][a-z]{2} \d{1,2}, \d{4})</div>", row)
+        tm = re.search(r'padding:\s*5px 0px;">\s*(\d{1,2}:\d{2}\s*[AP]M)', row)
+        ven = re.search(r"game-complex-item[^>]*>(.*?)</span>", row, re.S)
+        vt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", ven.group(1))).strip() if ven else ""
+        games.append({"match_id": mid.group(1), "home": (ha.group(1) == "H") if ha else None,
+                      "date": date.group(1) if date else None, "time": tm.group(1) if tm else None,
+                      "opp": unescape(opp.group(3)).strip(), "opp_team": opp.group(2),
+                      "venue": "" if vt == "-" else vt})
+    return games
+
+
+def build_ecnl_rows(t):
+    """One followed ECNL team -> team-centric game rows (team_id namespaced 'ecnl-<id>')."""
+    org, conf, club, team = t["ecnl_org"], t["ecnl_conf"], t["ecnl_club"], t["ecnl_team"]
+    league = ECNL_LEAGUE.get(org, "ECNL")
+    tname = t.get("name") or f"Team {team}"
+    r = requests.get(f"{ATHLETEONE}/get-individual-team-info/{org}/{conf}/{club}/{team}",
+                     headers=ECNL_HEADERS, timeout=30)
+    r.raise_for_status()
+    out = {}
+    for g in parse_ecnl_games(r.text, team):
+        md = _ecnl_date(g["date"])
+        t24 = _ecnl_time24(g["time"]) if g["time"] else None
+        vn, fn = _split_venue(g["venue"])
+        row = {
+            "match_id": int(g["match_id"]), "team_id": "ecnl-" + str(team),
+            "team_name": tname, "team_logo": None, "team_score": None,
+            "opponent_id": "ecnl-" + g["opp_team"], "opponent_name": g["opp"],
+            "opponent_logo": None, "opponent_score": None, "is_home": g["home"],
+            "match_time": (f"{md}T{t24}" if md and t24 else None), "match_date": md,
+            "venue_name": vn, "venue_address": None, "field_name": fn,
+            "event_id": None, "event_name": league, "division_name": None,
+            "match_number": int(g["match_id"]), "source": "ecnl", "updated_at": now_iso(),
+        }
+        out[(row["match_id"], row["team_id"])] = row
+    return list(out.values())
+
+
 def build_rows(team_ids):
     """Fetch + transform every team's matches into de-duped (match_id, team_id) rows."""
     all_rows = {}
@@ -230,6 +306,13 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     dry = "--dry-run" in sys.argv
 
+    if "--dry-run-ecnl" in sys.argv:
+        org, conf, club, team = [int(x) for x in args[:4]]
+        rows = build_ecnl_rows({"ecnl_org": org, "ecnl_conf": conf, "ecnl_club": club, "ecnl_team": team, "name": "Test ECNL"})
+        print(f"[dry run ecnl] {len(rows)} rows:")
+        print(json.dumps(rows, indent=2, default=str))
+        return
+
     if dry:
         team_ids = args or ["781238"]
         print(f"[dry run] teams: {team_ids}")
@@ -241,13 +324,25 @@ def main():
     if not SUPABASE_URL or not SUPABASE_KEY:
         sys.exit("SUPABASE_URL and SUPABASE_KEY must be set.")
 
-    team_ids = get_followed_team_ids()
-    print(f"Followed teams: {len(team_ids)} -> {team_ids}")
-    rows = build_rows(team_ids)
+    teams = get_followed_teams()
+    gots = list(dict.fromkeys(
+        str(t["team_id"]).strip() for t in teams
+        if (t.get("source") or "gotsport") != "ecnl" and str(t.get("team_id") or "").strip()))
+    ecnl = [t for t in teams if (t.get("source") or "") == "ecnl"]
+    print(f"Followed: {len(gots)} gotSport, {len(ecnl)} ECNL")
+    rows = build_rows(gots)
+    for t in ecnl:
+        try:
+            er = build_ecnl_rows(t)
+            print(f"  ECNL team {t.get('ecnl_team')}: {len(er)} games")
+            rows += er
+        except Exception as e:
+            print(f"  ! ECNL team {t.get('ecnl_team')} failed: {e}")
+        time.sleep(0.3)
     print(f"Upserting {len(rows)} game rows...")
     for i in range(0, len(rows), 200):
         upsert_games(rows[i:i + 200])
-    sync_clubs(rows)
+    sync_clubs([r for r in rows if r.get("source") != "ecnl"])
     print("Done.")
 
 

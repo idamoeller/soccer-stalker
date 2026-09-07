@@ -77,8 +77,59 @@ function toRow(teamId: string, m: any): any {
     event_name: m.event_name ?? null,
     division_name: m.division_name ?? null,
     match_number: m.match_number ?? null,
+    source: "gotsport",
     updated_at: new Date().toISOString(),
   };
+}
+
+// ---------------- ECNL (TotalGlobalSports / AthleteOne) ----------------
+const ECNL = "https://api.athleteone.com/api/Script";
+const ECNL_HEADERS: Record<string, string> = { ...GS_HEADERS, "Origin": "https://theecnl.com", "Referer": "https://theecnl.com/", "Accept": "*/*" };
+const ECNL_LEAGUE: Record<number, string> = { 9: "ECNL", 13: "ECNL RL" };
+const MONTHS: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+function unesc(s: string): string { return s.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">"); }
+function ecnlDate(s: string): string | null { const m = s.match(/([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/); return m ? `${m[3]}-${MONTHS[m[1]] || "01"}-${String(m[2]).padStart(2, "0")}` : null; }
+function ecnlTime24(s: string): string | null { if (!s || s.trim() === "12:00 AM") return null; const m = s.match(/(\d{1,2}):(\d{2})\s*([AP]M)/); if (!m) return null; let h = Number(m[1]) % 12; if (m[3] === "PM") h += 12; return `${String(h).padStart(2, "0")}:${m[2]}:00`; }
+function splitVenue(v: string | null): [string | null, string | null] { if (!v) return [null, null]; const i = v.lastIndexOf(" - "); return i >= 0 ? [v.slice(0, i).trim(), v.slice(i + 3).trim()] : [v.trim(), null]; }
+function parseEcnlGames(html: string, teamId: string): any[] {
+  const games: any[] = [];
+  for (const m of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+    const row = m[1];
+    const mid = row.match(/data-match-id="(\d+)"/);
+    const opp = row.match(/individual-team-item"[^>]*data-club-id="(\d+)"[^>]*data-team-id="(\d+)"[^>]*>([^<]+)<\/span>/);
+    if (!mid || !opp || opp[2] === String(teamId)) continue;
+    const ha = row.match(/min-height:\s*63px;[^>]*>\s*([HA])\s*<\/div>/);
+    const date = row.match(/<div>([A-Z][a-z]{2} \d{1,2}, \d{4})<\/div>/);
+    const tm = row.match(/padding:\s*5px 0px;">\s*(\d{1,2}:\d{2}\s*[AP]M)/);
+    const ven = row.match(/game-complex-item[^>]*>([\s\S]*?)<\/span>/);
+    let vt = ven ? ven[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+    if (vt === "-") vt = "";
+    games.push({ matchId: mid[1], home: ha ? ha[1] === "H" : null, date: date ? date[1] : null, time: tm ? tm[1] : null, opp: unesc(opp[3]).trim(), oppTeam: opp[2], venue: vt });
+  }
+  return games;
+}
+async function buildEcnlRows(t: any): Promise<any[]> {
+  const org = t.ecnl_org, conf = t.ecnl_conf, club = t.ecnl_club, team = t.ecnl_team;
+  const league = ECNL_LEAGUE[org] || "ECNL";
+  const r = await fetch(`${ECNL}/get-individual-team-info/${org}/${conf}/${club}/${team}`, { headers: ECNL_HEADERS });
+  const html = await r.text();
+  const out = new Map<string, any>();
+  for (const g of parseEcnlGames(html, String(team))) {
+    const md = g.date ? ecnlDate(g.date) : null;
+    const t24 = g.time ? ecnlTime24(g.time) : null;
+    const [vn, fn] = splitVenue(g.venue);
+    const row = {
+      match_id: Number(g.matchId), team_id: "ecnl-" + team, team_name: t.name || ("Team " + team),
+      team_logo: null, team_score: null, opponent_id: "ecnl-" + g.oppTeam, opponent_name: g.opp,
+      opponent_logo: null, opponent_score: null, is_home: g.home,
+      match_time: (md && t24) ? `${md}T${t24}` : null, match_date: md,
+      venue_name: vn, venue_address: null, field_name: fn,
+      event_id: null, event_name: league, division_name: null, match_number: Number(g.matchId),
+      source: "ecnl", updated_at: new Date().toISOString(),
+    };
+    out.set(row.match_id + ":" + row.team_id, row);
+  }
+  return [...out.values()];
 }
 
 async function fetchMatches(teamId: string): Promise<any[]> {
@@ -119,18 +170,24 @@ Deno.serve(async (req: Request) => {
   if (!user) return json({ error: "Not signed in." }, 401);
 
   const admin = createClient(url, serviceKey);
-  const { data: teams, error: teamsErr } = await admin.from("followed_teams").select("team_id");
+  const { data: teams, error: teamsErr } = await admin.from("followed_teams")
+    .select("team_id,name,source,ecnl_org,ecnl_conf,ecnl_club,ecnl_team");
   if (teamsErr) return json({ error: teamsErr.message }, 500);
 
-  const ids = [...new Set((teams ?? []).map((t: any) => String(t.team_id)))];
+  const gots = [...new Set((teams ?? []).filter((t: any) => (t.source || "gotsport") !== "ecnl").map((t: any) => String(t.team_id)).filter(Boolean))];
+  const ecnlTeams = (teams ?? []).filter((t: any) => t.source === "ecnl");
   const rows = new Map<string, any>();
-  for (const tid of ids) {
+  for (const tid of gots) {
     for (const m of await fetchMatches(tid)) {
       const row = toRow(tid, m);
       // skip TBD-bracket placeholders (team listed against itself)
       if (row.opponent_id && row.opponent_id === row.team_id) continue;
       rows.set(`${row.match_id}:${row.team_id}`, row);
     }
+  }
+  for (const t of ecnlTeams) {
+    try { for (const row of await buildEcnlRows(t)) rows.set(`${row.match_id}:${row.team_id}`, row); }
+    catch (_e) { /* skip a failing ECNL team */ }
   }
 
   const all = [...rows.values()];
@@ -143,7 +200,11 @@ Deno.serve(async (req: Request) => {
   let newClubs = 0;
   try {
     const refIds = new Set<string>();
-    for (const r of all) { if (r.team_id) refIds.add(String(r.team_id)); if (r.opponent_id) refIds.add(String(r.opponent_id)); }
+    // clubs cache is gotSport-only (numeric ids); skip namespaced 'ecnl-...' ids
+    for (const r of all) {
+      if (r.team_id && /^\d+$/.test(String(r.team_id))) refIds.add(String(r.team_id));
+      if (r.opponent_id && /^\d+$/.test(String(r.opponent_id))) refIds.add(String(r.opponent_id));
+    }
     const { data: known } = await admin.from("clubs").select("team_id");
     const have = new Set((known ?? []).map((c: any) => String(c.team_id)));
     const missing = [...refIds].filter((i) => !have.has(i));
@@ -155,5 +216,5 @@ Deno.serve(async (req: Request) => {
     newClubs = clubRows.length;
   } catch (_e) { /* clubs table may not exist yet */ }
 
-  return json({ ok: true, teams: ids.length, games: all.length, newClubs });
+  return json({ ok: true, teams: gots.length, ecnlTeams: ecnlTeams.length, games: all.length, newClubs });
 });

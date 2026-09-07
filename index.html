@@ -51,6 +51,14 @@
     padding:7px 2px 9px;font-family:var(--sans);font-size:15.5px;color:var(--ink);outline:none;}
   .field input:focus{border-bottom-color:var(--ink);}
   .field input::placeholder{color:var(--faint);}
+  .field select{width:100%;background:transparent;border:0;border-bottom:1px solid var(--field);
+    padding:7px 2px 9px;font-family:var(--sans);font-size:15.5px;color:var(--ink);outline:none;-webkit-appearance:none;appearance:none;}
+  .field select:focus{border-bottom-color:var(--ink);}
+  .field select:disabled{color:var(--faint);opacity:.7;}
+  .modetabs{display:inline-flex;border:1px solid var(--field);border-radius:2px;overflow:hidden;margin:0 0 6px;}
+  .modetabs button{background:none;padding:7px 14px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);cursor:pointer;}
+  .modetabs button.on{background:var(--ink);color:var(--paper);}
+  .modetabs button+button{border-left:1px solid var(--field);}
 
   /* buttons */
   .primary{display:block;width:100%;margin-top:26px;background:var(--ink);color:var(--paper);
@@ -209,11 +217,35 @@
 
   <section>
     <div class="sechead">Follow a team</div>
-    <label class="field"><span>gotSport team link · or team ID</span>
-      <input id="url" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
-    <label class="field"><span>Nickname · optional</span>
-      <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
-    <button class="primary" id="add">Follow team</button>
+    <div class="modetabs">
+      <button class="modetab on" data-mode="gotsport">gotSport</button>
+      <button class="modetab" data-mode="ecnl">ECNL</button>
+    </div>
+
+    <div id="gotsportForm">
+      <label class="field"><span>gotSport team link · or team ID</span>
+        <input id="url" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
+      <label class="field"><span>Nickname · optional</span>
+        <input id="nick" type="text" placeholder="e.g. Ava U13" autocomplete="off"></label>
+      <button class="primary" id="add">Follow team</button>
+    </div>
+
+    <div id="ecnlForm" hidden>
+      <label class="field"><span>League</span>
+        <select id="ecLeague"><option value="">— select —</option></select></label>
+      <label class="field"><span>Conference</span>
+        <select id="ecConf" disabled><option value="">—</option></select></label>
+      <label class="field"><span>Age group</span>
+        <select id="ecAge" disabled><option value="">—</option></select></label>
+      <label class="field" id="ecFlightWrap" hidden><span>Flight</span>
+        <select id="ecFlight" disabled><option value="">—</option></select></label>
+      <label class="field"><span>Team</span>
+        <select id="ecTeam" disabled><option value="">—</option></select></label>
+      <label class="field"><span>Nickname · optional</span>
+        <input id="ecNick" type="text" placeholder="e.g. Ava ECNL" autocomplete="off"></label>
+      <button class="primary" id="ecAdd" disabled>Follow team</button>
+    </div>
+
     <div id="addMsg" class="msg"></div>
   </section>
 
@@ -652,6 +684,91 @@
   }
 
   // ---------- wire up ----------
+  // ---------- ECNL picker (cascading, fed by the meta-ecnl proxy) ----------
+  const ecState = { leagues: [], org: null, season: null, hasFlights: false, conf: null, teams: [] };
+  function ecMsg(t, err) { const m = $("addMsg"); m.className = "msg" + (err ? " err" : (t ? " ok" : "")); m.textContent = t; }
+  async function metaFetch(action, params) {
+    const { data: { session } } = await sb.auth.getSession();
+    const u = new URL(SUPABASE_URL + "/functions/v1/meta-ecnl");
+    u.searchParams.set("action", action);
+    for (const k in (params || {})) u.searchParams.set(k, params[k]);
+    const r = await fetch(u, { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + (session ? session.access_token : "") } });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ("meta " + action + " " + r.status));
+    return d;
+  }
+  function setOptions(sel, items, placeholder) {
+    sel.innerHTML = '<option value="">' + escapeHtml(placeholder) + '</option>' +
+      items.map(i => '<option value="' + escapeHtml(i.id) + '">' + escapeHtml(i.name) + '</option>').join("");
+    sel.disabled = !items.length;
+  }
+  function resetEc(from) {
+    const order = ["Conf", "Age", "Flight", "Team"];
+    const idx = order.indexOf(from);
+    for (const k of order.slice(idx)) {
+      const sel = $("ec" + k); if (sel) { sel.innerHTML = '<option value="">—</option>'; sel.disabled = true; }
+    }
+    if (idx <= order.indexOf("Flight")) $("ecFlightWrap").hidden = true;  // only hide when the flight step itself is reset
+    $("ecAdd").disabled = true;
+  }
+  async function ecLoadLeagues() {
+    if ($("ecLeague").options.length > 1) return;
+    try { const d = await metaFetch("leagues"); ecState.leagues = d.leagues;
+      setOptions($("ecLeague"), d.leagues.map(l => ({ id: l.key, name: l.name })), "— select —"); }
+    catch (e) { ecMsg(errmsg(e), true); }
+  }
+  async function ecLoadTeams(div) {
+    setOptions($("ecTeam"), [], "loading teams…");
+    try {
+      const d = await metaFetch("teams", { org: ecState.org, season: ecState.season, conf: ecState.conf, div });
+      ecState.teams = d.teams || [];
+      setOptions($("ecTeam"), ecState.teams.map(t => ({ id: t.teamId, name: t.name })),
+        ecState.teams.length ? "— select team —" : "no teams found");
+      ecMsg("", false);
+    } catch (e) { ecMsg(errmsg(e), true); }
+  }
+  async function followEcnl() {
+    const t = ecState.teams.find(x => x.teamId === $("ecTeam").value);
+    if (!t) return;
+    $("ecAdd").disabled = true;
+    try {
+      const nick = $("ecNick").value.trim() || t.name;
+      const { error } = await sb.from("followed_teams").insert({
+        team_id: "ecnl-" + t.teamId, name: nick, user_id: user.id, source: "ecnl",
+        ecnl_org: ecState.org, ecnl_conf: Number(ecState.conf), ecnl_club: Number(t.clubId), ecnl_team: Number(t.teamId)
+      });
+      if (error) throw error;
+      ecMsg("Following " + t.name + " — games appear on the next sync.", false);
+      $("ecNick").value = "";
+      loadTeams(); loadClubs().then(loadGames);
+    } catch (e) { ecMsg(friendlyError(e), true); $("ecAdd").disabled = false; }
+  }
+  document.querySelectorAll(".modetab").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".modetab").forEach(x => x.classList.toggle("on", x === b));
+    const ecnl = b.dataset.mode === "ecnl";
+    $("gotsportForm").hidden = ecnl; $("ecnlForm").hidden = !ecnl; ecMsg("", false);
+    if (ecnl) ecLoadLeagues();
+  }));
+  $("ecLeague").addEventListener("change", () => {
+    resetEc("Conf"); const lg = ecState.leagues.find(l => l.key === $("ecLeague").value);
+    if (!lg) return; ecState.org = lg.org; ecState.season = lg.season; ecState.hasFlights = lg.hasFlights;
+    metaFetch("conferences", { season: lg.season }).then(d => setOptions($("ecConf"), d.conferences, "— select —")).catch(e => ecMsg(errmsg(e), true));
+  });
+  $("ecConf").addEventListener("change", () => {
+    resetEc("Age"); const conf = $("ecConf").value; if (!conf) return; ecState.conf = conf;
+    metaFetch("ages", { org: ecState.org, conf }).then(d => setOptions($("ecAge"), d.ages, "— select —")).catch(e => ecMsg(errmsg(e), true));
+  });
+  $("ecAge").addEventListener("change", () => {
+    resetEc("Flight"); const age = $("ecAge").value; if (!age) return;
+    if (ecState.hasFlights) {
+      $("ecFlightWrap").hidden = false;
+      metaFetch("flights", { org: ecState.org, conf: ecState.conf, age }).then(d => setOptions($("ecFlight"), d.flights, "— select —")).catch(e => ecMsg(errmsg(e), true));
+    } else { ecLoadTeams(age); }   // div = age for ECNL (no flights)
+  });
+  $("ecFlight").addEventListener("change", () => { resetEc("Team"); const f = $("ecFlight").value; if (f) ecLoadTeams(f); });
+  $("ecTeam").addEventListener("change", () => { $("ecAdd").disabled = !$("ecTeam").value; });
+  $("ecAdd").addEventListener("click", followEcnl);
+
   $("authBtn").addEventListener("click", doAuth);
   $("password").addEventListener("keydown", e => { if (e.key === "Enter") doAuth(); });
   $("email").addEventListener("keydown", e => { if (e.key === "Enter") doAuth(); });
