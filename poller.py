@@ -171,6 +171,9 @@ def build_rows(team_ids):
         for m in matches:
             try:
                 row = to_row(tid, m)
+                # skip TBD-bracket placeholders (team listed against itself)
+                if row.get("opponent_id") and str(row["opponent_id"]) == str(row["team_id"]):
+                    continue
                 all_rows[(row["match_id"], row["team_id"])] = row
             except Exception as e:
                 print(f"    ! row build failed for match {m.get('id')}: {e}")

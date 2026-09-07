@@ -496,6 +496,11 @@
     return null;
   }
   function anyRange() { return ranges.recent || ranges.upcoming || ranges.history; }
+  // TBD-bracket placeholders list a team against itself — hide them.
+  function isPlaceholder(g) {
+    return (g.opponent_id != null && String(g.opponent_id) === String(g.team_id))
+        || (!!g.opponent_name && !!g.team_name && g.opponent_name === g.team_name);
+  }
   function inRanges(g) {
     if (ranges.history) return true;                          // history = everything
     const d = gameDate(g), now = new Date();
@@ -529,7 +534,7 @@
     const el = $("games");
     if (!allGames.length) { el.innerHTML = '<div class="empty">No games synced yet.<br>They appear after the next background sync.</div>'; return; }
     if (!anyRange()) { el.innerHTML = '<div class="empty">Pick a filter — recent, upcoming, or history.</div>'; return; }
-    const list = allGames.filter(inRanges).sort((a, b) => {
+    const list = allGames.filter(g => !isPlaceholder(g) && inRanges(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return da - db;
@@ -590,9 +595,14 @@
   async function syncNow() {
     const b = $("syncBtn"); const orig = b.textContent;
     b.disabled = true; b.textContent = "↻ Syncing…";
-    try { await loadTeams(); await loadGames(); b.textContent = "✓ Synced"; }
-    catch (e) { b.textContent = "Retry"; }
-    setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1400);
+    let live = false;
+    try {
+      const { error } = await sb.functions.invoke("sync", { method: "POST" });
+      if (!error) live = true;                 // real gotSport pull succeeded
+    } catch (e) { /* sync function not deployed yet — fall back to a refresh */ }
+    try { await loadTeams(); await loadGames(); } catch (e) {}
+    b.textContent = live ? "✓ Synced" : "↻ Refreshed";
+    setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1500);
   }
   $("syncBtn").addEventListener("click", syncNow);
 
