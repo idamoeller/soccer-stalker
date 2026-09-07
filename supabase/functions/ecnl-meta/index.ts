@@ -6,18 +6,30 @@
 //   League -> Conference -> Age -> (Flight, RL only) -> Team
 //
 // Actions (query param `action`):
+//   ECNL cascading picker:
 //   leagues
 //   conferences?season=80
 //   ages?org=9&conf=4265
 //   flights?org=13&conf=4310&age=22262
 //   teams?org=9&season=80&conf=4265&div=40563     (div = age for ECNL, flight for RL)
+//   gotSport name search (open ranking API — no auth, requires gender+age):
+//   gotsport-search?q=Scorpions&gender=f&age=13&page=1   (optional: state=MA, tier, filter_by)
 //
 // Deploy from the Supabase dashboard: Edge Functions -> Create -> name it
-// "ecnl-meta" -> paste this file -> Deploy.
+// "ecnl-meta" -> paste this file -> Deploy.  (Its URL slug stays "meta-ecnl".)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const A1 = "https://api.athleteone.com/api/Script";
+// gotSport's public rankings API. Browser-ish headers keep datacenter IPs unblocked
+// (same trick the poller uses). Endpoint is open, but wants a real UA/Referer.
+const GOTSPORT_API = "https://system.gotsport.com/api/v1";
+const GS_RANK_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+  "Referer": "https://rankings.gotsport.com/",
+  "Origin": "https://rankings.gotsport.com",
+};
 const GS_HEADERS: Record<string, string> = {
   "Origin": "https://theecnl.com",
   "Referer": "https://theecnl.com/",
@@ -72,6 +84,43 @@ function parseTeams(html: string): Array<{ teamId: string; clubId: string; name:
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Prefix a gotSport relative logo path with the host (matches poller/front-end).
+function gsLogo(p: string | null | undefined): string | null {
+  if (!p) return null;
+  return p.startsWith("http") ? p : `https://system.gotsport.com${p}`;
+}
+
+// gotSport ranking search. Requires gender (f|m) + age; team_or_club_name alone
+// returns nothing (mirrors the rankings site's own behaviour).
+async function gotsportSearch(q: URLSearchParams) {
+  const params = new URLSearchParams();
+  const put = (k: string, v: string | null) => { if (v) params.append(`search[${k}]`, v); };
+  put("team_or_club_name", q.get("q"));
+  put("gender", q.get("gender"));          // "f" | "m"
+  put("age", q.get("age"));                // integer, e.g. 13 for U13
+  put("team_country", q.get("country") || "USA");
+  put("team_association", q.get("state")); // 2-letter state code (optional)
+  put("tier", q.get("tier"));              // optional
+  put("filter_by", q.get("filter_by"));    // optional: national|regional|state
+  params.append("search[page]", q.get("page") || "1");
+
+  const r = await fetch(`${GOTSPORT_API}/team_ranking_data?${params.toString()}`, { headers: GS_RANK_HEADERS });
+  if (!r.ok) return { error: `gotSport ${r.status}`, teams: [], pagination: null };
+  const body = await r.json();
+  const teams = (body.team_ranking_data || []).map((t: Record<string, unknown>) => ({
+    teamId: String(t.team_id),
+    name: t.team_name,
+    clubName: t.club_name ?? null,
+    gender: t.gender,                       // "f" | "m"
+    age: t.age,
+    state: t.team_association ?? null,
+    logo: gsLogo(t.logo_url_full as string),
+    nationalRank: t.national_rank ?? null,
+    record: { w: t.total_wins ?? null, l: t.total_losses ?? null, d: t.total_draws ?? null },
+  }));
+  return { teams, pagination: body.pagination ?? null };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -101,6 +150,11 @@ Deno.serve(async (req: Request) => {
     if (action === "teams") {
       const org = q.get("org"), season = q.get("season"), conf = q.get("conf"), div = q.get("div");
       return json({ teams: parseTeams(await fetchText(`get-conference-schedules/${org}/${season}/${conf}/${div}/0`)) });
+    }
+    if (action === "gotsport-search") {
+      if (!q.get("q")) return json({ error: "Enter a team or club name." }, 400);
+      if (!q.get("gender") || !q.get("age")) return json({ error: "Gender and age are required." }, 400);
+      return json(await gotsportSearch(q));
     }
     return json({ error: "unknown action" }, 400);
   } catch (e) {
