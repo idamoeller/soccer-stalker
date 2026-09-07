@@ -175,7 +175,20 @@
   .synclink:disabled{color:var(--muted);border-bottom-color:transparent;cursor:default;}
   .menubtn{background:none;border:0;font-size:22px;line-height:1;color:var(--ink);cursor:pointer;padding:2px 2px 0;}
 
-  /* drawer menu */
+  /* top-nav dropdown (Home / Teams / Settings) */
+  .navwrap{position:relative;}
+  .navmenu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;background:var(--white);
+    border:1px solid var(--rule);border-radius:3px;box-shadow:0 10px 34px rgba(28,26,23,.16);
+    min-width:156px;padding:5px;}
+  .navitem{display:block;width:100%;text-align:left;background:none;border:0;cursor:pointer;
+    font-family:var(--sans);font-size:15px;color:var(--ink);padding:9px 12px;border-radius:2px;}
+  .navitem:hover{background:var(--paper);}
+  .navitem.on{color:var(--accent);font-weight:600;}
+  .setrow{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:6px 0 22px;}
+  .setlabel{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+  .setval{font-size:15px;color:var(--ink);word-break:break-all;}
+
+  /* drawer menu (legacy — unused after nav redesign) */
   .backdrop{position:fixed;inset:0;background:rgba(28,26,23,.30);z-index:40;}
   .menu{position:fixed;top:0;right:0;bottom:0;width:min(90vw,392px);background:var(--paper);
     border-left:1px solid var(--rule);box-shadow:-12px 0 36px rgba(28,26,23,.13);z-index:50;
@@ -280,11 +293,18 @@
     <h1 class="brand"><span class="ball">⚽</span>Soccer Stalker</h1>
     <div class="appacts">
       <button id="syncBtn" class="synclink" aria-label="Sync now">↻ Sync</button>
-      <button id="menuBtn" class="menubtn" aria-label="Menu">☰</button>
+      <div class="navwrap">
+        <button id="menuBtn" class="menubtn" aria-label="Menu" aria-expanded="false">☰</button>
+        <nav id="navMenu" class="navmenu" hidden>
+          <button class="navitem" data-nav="home">Home</button>
+          <button class="navitem" data-nav="teams">Teams</button>
+          <button class="navitem" data-nav="settings">Settings</button>
+        </nav>
+      </div>
     </div>
   </div>
 
-  <section>
+  <section class="view" data-view="teams" hidden>
     <div class="sechead">Follow a team</div>
     <div class="modetabs">
       <button class="modetab on" data-mode="gotsport">gotSport</button>
@@ -331,7 +351,7 @@
     <div id="addMsg" class="msg"></div>
   </section>
 
-  <section>
+  <section class="view" data-view="home">
     <div class="sechead">Games</div>
     <div class="controls">
       <div class="seg">
@@ -356,23 +376,18 @@
     <div id="teamFilter" class="teamfilter"></div>
     <div id="games"><div class="empty">Loading…</div></div>
   </section>
-</div>
 
-<!-- ============ MENU (drawer) ============ -->
-<div id="backdrop" class="backdrop" hidden></div>
-<aside id="menu" class="menu" hidden>
-  <div class="menuhead">
-    <span class="who" id="who"></span>
-    <button id="menuClose" class="menux" aria-label="Close menu">×</button>
-  </div>
-  <div class="menuscroll">
-    <section style="margin-top:22px;">
-      <div class="sechead">Teams you follow</div>
-      <div id="teams"><div class="empty">Loading…</div></div>
-    </section>
+  <section class="view" data-view="teams" hidden style="margin-top:34px;">
+    <div class="sechead">Teams you follow</div>
+    <div id="teams"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section class="view" data-view="settings" hidden>
+    <div class="sechead">Account</div>
+    <div class="setrow"><span class="setlabel">Signed in as</span> <span id="who" class="setval"></span></div>
     <button class="primary ghostbtn" id="signOut">Sign out</button>
-  </div>
-</aside>
+  </section>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -548,14 +563,14 @@
     user = null;
     $("app").hidden = true;
     $("auth").hidden = false;
-    $("menu").hidden = true;
-    $("backdrop").hidden = true;
+    $("navMenu").hidden = true;
   }
   function showLoggedIn(u) {
     user = u;
     $("auth").hidden = true;
     $("app").hidden = false;
     $("who").textContent = u.email;
+    showView("home");
     loadTeams();
     loadClubs().then(loadGames);
   }
@@ -1148,19 +1163,37 @@
   $("gsSearch").addEventListener("click", gsSearch);
   $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
 
-  // close the team-filter dropdown on any outside click
+  // close the team-filter + nav dropdowns on any outside click
   document.addEventListener("click", () => {
-    if (!tfOpen) return;
-    tfOpen = false;
-    const p = $("tfPanel"); if (p) p.hidden = true;
-    const b = $("tfBtn"); if (b) b.setAttribute("aria-expanded", "false");
+    if (tfOpen) {
+      tfOpen = false;
+      const p = $("tfPanel"); if (p) p.hidden = true;
+      const b = $("tfBtn"); if (b) b.setAttribute("aria-expanded", "false");
+    }
+    const nm = $("navMenu");
+    if (nm && !nm.hidden) { nm.hidden = true; $("menuBtn").setAttribute("aria-expanded", "false"); }
   });
 
-  // drawer menu
-  function closeMenu() { $("menu").hidden = true; $("backdrop").hidden = true; editingId = null; renderTeams(); }
-  $("menuBtn").addEventListener("click", () => { $("menu").hidden = false; $("backdrop").hidden = false; });
-  $("menuClose").addEventListener("click", closeMenu);
-  $("backdrop").addEventListener("click", closeMenu);
+  // top-nav (Home / Teams / Settings)
+  let currentView = "home";
+  function showView(name) {
+    currentView = name;
+    document.querySelectorAll("#app > .view").forEach(el => { el.hidden = el.dataset.view !== name; });
+    document.querySelectorAll(".navitem").forEach(b => b.classList.toggle("on", b.dataset.nav === name));
+    editingId = null; linkingId = null;
+    if (name === "teams") renderTeams();
+    $("navMenu").hidden = true;
+    $("menuBtn").setAttribute("aria-expanded", "false");
+    window.scrollTo(0, 0);
+  }
+  $("menuBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = $("navMenu").hidden;
+    $("navMenu").hidden = !willOpen;
+    $("menuBtn").setAttribute("aria-expanded", String(willOpen));
+  });
+  $("navMenu").addEventListener("click", e => e.stopPropagation());
+  document.querySelectorAll(".navitem").forEach(b => b.addEventListener("click", () => showView(b.dataset.nav)));
 
   // sync now — for now this refreshes from the database; once the poller (backend)
   // exists we'll first trigger the gotSport pull here, then reload.
