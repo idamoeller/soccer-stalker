@@ -8,8 +8,8 @@
 // Env vars are injected automatically by Supabase: SUPABASE_URL,
 // SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY.
 //
-// Deploy from the Supabase dashboard: Edge Functions → Create function →
-// name it "sync" → paste this file → Deploy.
+// Deploy from the Supabase dashboard: Edge Functions → open the function whose
+// slug is "sync" → paste this file (replace all) → Deploy.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
