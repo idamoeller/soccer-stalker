@@ -25,6 +25,11 @@
 
   .wrap{max-width:560px;margin:0 auto;padding:38px 22px 80px;}
   .authwrap{max-width:392px;margin:0 auto;padding:14vh 22px 60px;}
+  /* On a wider screen (tablet/desktop) let the schedule breathe. Mobile keeps
+     the narrow 560px column; this only kicks in above 760px viewport width. */
+  @media (min-width: 760px){
+    .wrap{max-width:900px;padding-left:34px;padding-right:34px;}
+  }
 
   /* headline */
   .brand{font-family:var(--serif);font-size:36px;font-weight:400;line-height:1;letter-spacing:-.01em;margin:0;}
@@ -127,7 +132,6 @@
   .crow:hover td{background:var(--white);}
   .c-date{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:var(--ink-2);white-space:nowrap;}
   .c-time{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);white-space:nowrap;margin-top:2px;}
-  .c-ha{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap;}
   .c-opp{font-size:13px;font-weight:500;color:var(--ink);line-height:1.25;}
   .c-team{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
@@ -746,7 +750,6 @@
   }
   function compactRow(g, withTeam) {
     const r = cResult(g);
-    const ha = g.is_home === true ? "Home" : g.is_home === false ? "Away" : "";
     const teamCell = withTeam
       ? '<div class="c-team">' + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : "")
         + escapeHtml(teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "") + '</div>'
@@ -755,7 +758,6 @@
     return '<tr class="crow" data-url="' + escapeHtml(gameUrl(g)) + '">'
       + '<td><span class="c-date">' + escapeHtml(cDate(g)) + '</span>'
         + (cTime(g) ? '<div class="c-time">' + escapeHtml(cTime(g)) + '</div>' : "") + '</td>'
-      + '<td class="c-ha">' + ha + '</td>'
       + '<td>' + teamCell + '<div class="c-opp">' + escapeHtml(withClub(g.opponent_id, g.opponent_name) || "TBD") + '</div></td>'
       + '<td class="c-res ' + r.cls + '">' + escapeHtml(r.txt) + '</td>'
       + '<td class="c-event">' + escapeHtml(g.event_name || "") + div + '</td>'
@@ -763,7 +765,7 @@
   }
   function compactTable(games, withTeam) {
     return '<table class="ctable"><thead><tr>'
-      + '<th>Date</th><th>H/A</th><th>' + (withTeam ? "Team · Opponent" : "Opponent") + '</th><th style="text-align:right">Result</th><th>Event</th>'
+      + '<th>Date</th><th>' + (withTeam ? "Team · Opponent" : "Opponent") + '</th><th style="text-align:right">Result</th><th>Event</th>'
       + '</tr></thead><tbody>'
       + games.map(g => compactRow(g, withTeam)).join("")
       + '</tbody></table>';
@@ -798,15 +800,13 @@
   function gameRow(g) {
     const mine = { name: teamNick(g.team_id) || withClub(g.team_id, g.team_name), logo: g.team_logo, score: g.team_score, mine: true };
     const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: g.opponent_logo, score: g.opponent_score, mine: false };
-    const home = g.is_home ? mine : opp;
-    const away = g.is_home ? opp : mine;
     const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
       + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
     return '<a class="game" href="' + gameUrl(g) + '" target="_blank" rel="noopener">'
       + (g.event_name ? '<div class="gevent">' + escapeHtml(g.event_name) + '</div>' : "")
-      + '<div class="scard">' + sideLine(home, rcls) + sideLine(away, rcls) + '</div>'
+      + '<div class="scard">' + sideLine(mine, rcls) + sideLine(opp, rcls) + '</div>'
       + '<div class="when">' + meta + '</div></a>';
   }
 

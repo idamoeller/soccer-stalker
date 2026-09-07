@@ -22,7 +22,7 @@ import sys
 import time
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html import unescape
 
 import requests
@@ -55,9 +55,67 @@ SB_HEADERS = {
     "Content-Type": "application/json",
 }
 
+# ---- Smart scheduling -------------------------------------------------------
+# The cron fires often, but a real gotSport pull only happens when it's worth
+# it: around a known kickoff, once a day to refresh the schedule, or when a
+# newly-followed team has no games yet. Any other run is a couple of tiny
+# Supabase reads and an early exit -- so on a quiet weekday nothing gets polled,
+# and the pulls naturally cluster on game days (usually weekends).
+LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "5"))    # games run long + score-entry lag
+LOOKAHEAD_HOURS = int(os.environ.get("LOOKAHEAD_HOURS", "2"))  # warm up before kickoff
+REFRESH_HOUR_UTC = int(os.environ.get("REFRESH_HOUR_UTC", "11"))  # daily schedule refresh (~7am ET)
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def any_game_in_window(back_hours, ahead_hours):
+    """True if any followed game kicks off within [now-back, now+ahead].
+    Every games row is a followed team's game, so one hit means it's game time."""
+    now = datetime.now(timezone.utc)
+    lo = (now - timedelta(hours=back_hours)).isoformat()
+    hi = (now + timedelta(hours=ahead_hours)).isoformat()
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+        params={"select": "match_id", "and": f"(match_time.gte.{lo},match_time.lte.{hi})", "limit": 1},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return len(r.json()) > 0
+
+
+def teams_missing_games(team_ids):
+    """Followed teams that have no games stored yet (just added -> pull now)."""
+    if not team_ids:
+        return []
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+                     params={"select": "team_id"}, timeout=30)
+    r.raise_for_status()
+    have = {str(row["team_id"]) for row in r.json()}
+    return [t for t in team_ids if str(t) not in have]
+
+
+def should_sync(team_ids):
+    """Decide whether this run does a real pull. Returns (bool, reason)."""
+    if os.environ.get("FORCE_SYNC") == "1":
+        return True, "forced (manual run)"
+    now = datetime.now(timezone.utc)
+    # Once a day, refresh the schedule so new/rescheduled games get picked up.
+    # Only the top-of-hour run inside REFRESH_HOUR_UTC qualifies (cron fires
+    # every 10 min; minute<10 keeps it to a single daily refresh).
+    if now.hour == REFRESH_HOUR_UTC and now.minute < 10:
+        return True, "daily schedule refresh"
+    try:
+        missing = teams_missing_games(team_ids)
+        if missing:
+            return True, f"{len(missing)} newly-followed team(s) with no games yet"
+        if any_game_in_window(LOOKBACK_HOURS, LOOKAHEAD_HOURS):
+            return True, "game in progress / imminent"
+    except Exception as e:
+        # If the schedule check itself fails, don't silently go dark -- sync.
+        return True, f"schedule check failed ({e}); syncing to be safe"
+    return False, "no game near now; skipping pull"
 
 
 def get_followed_teams():
@@ -330,6 +388,13 @@ def main():
         if (t.get("source") or "gotsport") != "ecnl" and str(t.get("team_id") or "").strip()))
     ecnl = [t for t in teams if (t.get("source") or "") == "ecnl"]
     print(f"Followed: {len(gots)} gotSport, {len(ecnl)} ECNL")
+
+    # Smart scheduling: only do the real pull when there's something to pull for.
+    all_ids = gots + [f"ecnl-{t.get('ecnl_team')}" for t in ecnl]
+    go, reason = should_sync(all_ids)
+    print(f"Sync decision: {'RUN' if go else 'SKIP'} -- {reason}")
+    if not go:
+        return
     rows = build_rows(gots)
     for t in ecnl:
         try:
