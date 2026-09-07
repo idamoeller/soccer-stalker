@@ -6,14 +6,17 @@
 <title>Soccer Stalker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Work+Sans:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#faf8f4; --ink:#1c1a17; --ink-2:#5c574d; --muted:#78726a; --faint:#a09a8e;
-    --rule:#e7e2d8; --field:#c9c2b4; --accent:#2f5d45; --accent-soft:#b9cdc2;
-    --win:#2f7d4f; --loss:#b23a3a; --draw:#a97613; --white:#fffdfa;
-    --serif:'Libre Caslon Display',Georgia,'Times New Roman',serif;
-    --sans:'Work Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    /* "Ledger" design system — IBM Plex Sans + Mono, quiet paper palette */
+    --paper:#fcfcfb; --ink:#191a18; --ink-2:#4f514c; --muted:#6d6f6a; --muted-2:#75776f; --faint:#a8a9a2;
+    --band:#f2f2ed; --crest-team:#e4e4dd; --crest-opp:#eeeee7; --crest-ink:#5f6159;
+    --rule-strong:#d9d9d3; --rule:#e4e4de; --rule-soft:#eeeee8; --border:#e2e2dd; --field:#c9c9c2;
+    --accent:#2c6b45; --accent-soft:#b9cdc2;
+    --win:#2c6b45; --loss:#9c3b34; --draw:#7a6318; --white:#ffffff;
+    --serif:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -32,10 +35,10 @@
   }
 
   /* headline */
-  .brand{font-family:var(--serif);font-size:36px;font-weight:400;line-height:1;letter-spacing:-.01em;margin:0;}
-  .brand .ball{font-size:.66em;margin-right:.12em;}
-  .kicker{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--muted);margin:12px 0 0;}
+  .brand{font-family:var(--sans);font-size:16px;font-weight:600;line-height:1.1;letter-spacing:-.01em;margin:0;color:var(--ink);}
+  .authbrand{font-family:var(--sans);font-size:24px;font-weight:600;line-height:1.05;letter-spacing:-.02em;margin:0;color:var(--ink);}
+  .kicker{font-family:var(--mono);font-size:11px;font-weight:400;letter-spacing:.02em;
+    color:var(--muted);margin:10px 0 0;}
 
   /* user bar */
   .userbar{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
@@ -61,7 +64,7 @@
   .field select:focus{border-bottom-color:var(--ink);}
   .field select:disabled{color:var(--faint);opacity:.7;}
   .modetabs{display:inline-flex;border:1px solid var(--field);border-radius:2px;overflow:hidden;margin:0 0 6px;}
-  .modetabs button{background:none;padding:7px 14px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);cursor:pointer;}
+  .modetabs button{background:none;padding:7px 14px;font-family:var(--mono);font-size:11px;letter-spacing:.02em;text-transform:none;color:var(--muted);cursor:pointer;}
   .modetabs button.on{background:var(--ink);color:var(--paper);}
   .modetabs button+button{border-left:1px solid var(--field);}
 
@@ -90,57 +93,81 @@
   .team .info{flex:1;min-width:0;}
   .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .team .tid{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+  .team .tid{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted-2);margin-top:2px;}
   .xbtn{background:none;border:0;padding:2px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--faint);flex:none;cursor:pointer;}
   .xbtn:hover{color:var(--loss);}
 
-  .empty{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
-    color:var(--faint);padding:22px 0;text-align:center;line-height:1.7;}
+  .empty{font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;
+    color:var(--muted-2);padding:16px 0;line-height:1.6;}
 
-  /* games */
-  .teamgroup{margin-top:30px;padding-top:26px;border-top:2px solid var(--ink);}
-  .teamgroup:first-child{margin-top:16px;padding-top:22px;border-top:2px solid var(--ink);}
-  #games > .game:first-child{border-top:2px solid var(--ink);margin-top:16px;padding-top:16px;}  /* combined mode divider */
-  .grouphd{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
-  .grouphd img{width:30px;height:30px;border-radius:3px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
-  .grouphd .gname{font-family:var(--sans);font-size:19px;font-weight:600;letter-spacing:-.01em;color:var(--ink);line-height:1.15;}
-  .game{display:block;padding:14px 0;border-bottom:1px solid var(--rule);text-decoration:none;color:inherit;}
-  .game:hover .gevent{color:var(--accent);}
-  .gevent{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.01em;margin-bottom:9px;}
+  /* ===== games: ledger (compact) + cards (expanded), shared team band ===== */
+  .teamblock{margin-top:18px;}
+  .teamblock:first-child{margin-top:14px;}
+  .teamband{display:flex;align-items:center;gap:9px;background:var(--band);padding:7px 8px;}
+  .teamband.clk{cursor:pointer;}
+  .bcrest{width:24px;height:24px;flex:none;border-radius:3px;background:var(--crest-team);color:var(--crest-ink);
+    font-family:var(--sans);font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;object-fit:contain;}
+  .bname{flex:1;min-width:0;font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .brec{font-family:var(--mono);font-size:10.5px;color:var(--muted);flex:none;font-variant-numeric:tabular-nums;}
+  .brec-div{display:none;}
+
+  .ledger{width:100%;border-collapse:collapse;table-layout:fixed;}
+  .ledger thead{display:none;}                         /* phone: no header row */
+  .ledger td{border-bottom:1px solid var(--rule-soft);vertical-align:top;}
+  .lrow{cursor:pointer;}
+  .l-date{width:60px;padding:9px 8px 9px 0;font-family:var(--mono);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+  .l-date .ddesk{display:none;}
+  .l-date .dtime{display:block;color:var(--muted-2);}
+  .l-opp{padding:9px 8px 9px 0;}
+  .oline{display:flex;align-items:center;gap:7px;min-width:0;}
+  .ocrest{width:20px;height:20px;flex:none;border-radius:3px;background:var(--crest-opp);color:var(--muted);
+    font-family:var(--sans);font-size:8px;font-weight:600;display:flex;align-items:center;justify-content:center;object-fit:contain;}
+  .oname{font-family:var(--sans);font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .evline{font-size:11px;color:var(--muted-2);margin-top:3px;padding-left:27px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .l-res{width:56px;padding:9px 0;text-align:right;font-family:var(--mono);font-size:12px;font-weight:500;
+    color:var(--muted-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .l-res.win{color:var(--win);} .l-res.loss{color:var(--loss);} .l-res.draw{color:var(--draw);}
+  .l-event,.l-venue{display:none;}                     /* desktop only */
+  @media (min-width:760px){
+    .teamblock{margin-top:26px;}
+    .teamband{gap:11px;padding:9px 10px;}
+    .bcrest{width:26px;height:26px;font-size:9.5px;border-radius:4px;}
+    .bname{font-size:11.5px;}
+    .ledger thead{display:table-header-group;}
+    .ledger th{text-align:left;padding:10px 12px 7px 0;border-bottom:1px solid var(--rule);
+      font-family:var(--mono);font-size:9.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);}
+    .ledger th.h-res{text-align:right;padding-right:24px;}
+    .ledger th.h-venue{padding-right:0;}
+    .ledger td{padding:11px 12px 11px 0;}
+    .l-date{width:120px;font-size:11.5px;}
+    .l-date .dmob{display:none;} .l-date .ddesk{display:inline;}
+    .l-date .dtime{display:inline;margin-left:5px;}
+    .oline{gap:9px;} .ocrest{width:22px;height:22px;} .oname{font-size:14px;}
+    .evline{display:none;}
+    .l-res{width:80px;font-size:12.5px;padding-right:24px;}
+    .l-event{display:table-cell;width:180px;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .l-venue{display:table-cell;width:150px;padding:11px 0;font-size:12.5px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .l-venue.faint{color:var(--faint);}
+    .lrow:hover td{background:#f7f7f4;}
+    .brec-div{display:inline;}
+  }
+
+  /* expanded: reskinned cards */
+  .game{display:block;padding:13px 2px;border-bottom:1px solid var(--rule-soft);text-decoration:none;color:inherit;}
+  .game:hover{background:#f7f7f4;}
+  .gevent{font-family:var(--mono);font-size:11px;color:var(--muted-2);margin-bottom:8px;}
   .scard{display:flex;flex-direction:column;gap:6px;}
   .tline{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .tside{display:flex;align-items:center;gap:9px;min-width:0;}
   .scard .crest{width:22px;height:22px;font-size:12px;}
-  .tn{font-size:15px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tn{font-size:14px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .tline.mine .tn{color:var(--ink);font-weight:600;}
-  .tsc{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--muted);
+  .tsc{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--muted-2);
     font-variant-numeric:tabular-nums;flex:none;min-width:14px;text-align:right;}
   .tsc.win{color:var(--win);} .tsc.loss{color:var(--loss);} .tsc.draw{color:var(--draw);}
-  .game .when{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--faint);margin-top:10px;line-height:1.5;}
-
-  /* compact (dense table) view */
-  .grouphd .ghinfo{display:flex;flex-direction:column;gap:2px;min-width:0;}
-  .grec{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
-  .ctable{width:100%;border-collapse:collapse;margin-top:4px;}
-  .ctable th{font-family:var(--mono);font-size:8px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--faint);text-align:left;padding:0 7px 6px 0;border-bottom:1px solid var(--rule);white-space:nowrap;}
-  .ctable td{padding:8px 7px 8px 0;border-bottom:1px solid var(--rule);vertical-align:top;}
-  .ctable tr:last-child td{border-bottom:none;}
-  .crow{cursor:pointer;}
-  .crow:hover td{background:var(--white);}
-  .c-date{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:var(--ink-2);white-space:nowrap;}
-  .c-time{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);white-space:nowrap;margin-top:2px;}
-  .c-opp{font-size:13px;font-weight:500;color:var(--ink);line-height:1.25;}
-  .c-team{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
-  .c-team img{width:13px;height:13px;border-radius:2px;object-fit:contain;border:1px solid var(--rule);background:var(--white);}
-  .c-res{font-family:var(--mono);font-size:12.5px;font-weight:600;white-space:nowrap;text-align:right;
-    font-variant-numeric:tabular-nums;color:var(--muted);}
-  .c-res.win{color:var(--win);} .c-res.loss{color:var(--loss);} .c-res.draw{color:var(--draw);}
-  .c-event{font-size:11px;color:var(--ink-2);line-height:1.3;}
-  .c-event .cdiv{font-family:var(--mono);font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+  .game .when{font-family:var(--mono);font-size:10px;letter-spacing:0;color:var(--muted-2);margin-top:9px;line-height:1.5;}
 
   /* view controls */
   .controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 16px;margin:16px 0 2px;}
@@ -166,14 +193,39 @@
   .stepper b{font-weight:600;color:var(--ink);min-width:12px;text-align:center;font-size:11px;}
   .stepper .unit{color:var(--muted);}
 
-  /* header actions + sync */
-  .apphead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
-  .appacts{display:flex;align-items:center;gap:16px;flex:none;}
-  .synclink{background:none;border:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--accent);cursor:pointer;border-bottom:1px solid var(--accent-soft);padding:0 0 2px;}
-  .synclink:hover{border-bottom-color:var(--accent);}
-  .synclink:disabled{color:var(--muted);border-bottom-color:transparent;cursor:default;}
-  .menubtn{background:none;border:0;font-size:22px;line-height:1;color:var(--ink);cursor:pointer;padding:2px 2px 0;}
+  /* header actions + sync + top nav (ledger design) */
+  .apphead{display:flex;align-items:baseline;justify-content:space-between;gap:20px;
+    padding-bottom:14px;border-bottom:1px solid var(--rule-strong);}
+  .apphead-l{display:flex;align-items:baseline;gap:28px;min-width:0;}
+  .topnav{display:none;}                    /* desktop only, enabled in media query */
+  .tabnav{background:none;border:0;padding:0 0 2px;font-family:var(--sans);font-size:13.5px;
+    color:#5b5d58;cursor:pointer;border-bottom:1.5px solid transparent;}
+  .tabnav.on{color:var(--ink);font-weight:600;border-bottom-color:var(--ink);}
+  .appacts{display:flex;align-items:baseline;gap:14px;flex:none;}
+  .syncedat{display:none;font-family:var(--mono);font-size:11px;color:var(--muted);}
+  .synclink{background:none;border:0;font-family:var(--mono);font-size:11px;letter-spacing:0;
+    text-transform:none;color:var(--muted);cursor:pointer;padding:0;}
+  .synclink:hover{color:var(--ink);}
+  .synclink:disabled{color:var(--faint);cursor:default;}
+  .menubtn{background:none;border:0;font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;padding:0;}
+  .menubtn:hover{color:var(--ink);}
+  @media (min-width:760px){
+    .topnav{display:flex;align-items:baseline;gap:20px;}
+    .syncedat{display:inline;}
+    .menubtn{display:none;}
+    .synclink{color:var(--ink);}
+  }
+
+  /* view-state summary line + popover */
+  .stateline{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-top:16px;}
+  .stwrap{position:relative;}
+  .stbtn{background:none;border:0;padding:0;font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;}
+  .stbtn:hover{color:var(--ink);}
+  .pop{position:absolute;z-index:50;top:calc(100% + 8px);left:0;background:var(--white);
+    border:1px solid var(--rule);box-shadow:0 10px 34px rgba(28,26,23,.14);padding:14px;min-width:240px;}
+  .poprow{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+  .poprow:last-child{margin-bottom:0;}
+  .poplabel{font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--muted);width:52px;flex:none;}
 
   /* top-nav dropdown (Home / Teams / Settings) */
   .navwrap{position:relative;}
@@ -244,18 +296,18 @@
   .gsfallback summary::before{content:"+ ";color:var(--faint);}
   .gsfallback[open] summary::before{content:"– ";}
 
-  /* team filter — excel-style dropdown */
-  .teamfilter{position:relative;margin:14px 0 2px;}
+  /* team filter — opened from the right summary text */
+  .teamfilter{position:relative;}
   .teamfilter:empty{display:none;}
-  .tfbtn{display:inline-flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--field);
-    border-radius:2px;padding:8px 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
-    text-transform:uppercase;color:var(--ink-2);cursor:pointer;}
-  .tfbtn:hover{border-color:var(--ink);}
-  .tfbtn .tflabel{color:var(--faint);}
-  .tfbtn .tfcaret{color:var(--muted);font-size:8px;margin-left:1px;}
-  .tfpanel{position:absolute;z-index:30;top:calc(100% + 5px);left:0;min-width:232px;max-width:300px;
-    background:var(--paper);border:1px solid var(--field);border-radius:3px;
-    box-shadow:0 12px 32px rgba(28,26,23,.15);padding:10px;}
+  .tfbtn{display:inline-flex;align-items:baseline;gap:5px;background:none;border:0;
+    padding:0;font-family:var(--mono);font-size:11px;letter-spacing:0;
+    text-transform:none;color:var(--muted);cursor:pointer;}
+  .tfbtn:hover{color:var(--ink);}
+  .tfbtn .tflabel{display:none;}
+  .tfbtn .tfcaret{display:none;}
+  .tfpanel{position:absolute;z-index:50;top:calc(100% + 8px);right:0;min-width:232px;max-width:300px;
+    background:var(--white);border:1px solid var(--rule);border-radius:0;
+    box-shadow:0 10px 34px rgba(28,26,23,.14);padding:12px;}
   .tfsearch{width:100%;background:transparent;border:0;border-bottom:1px solid var(--field);
     padding:5px 2px 7px;font-family:var(--sans);font-size:14px;color:var(--ink);outline:none;margin-bottom:6px;}
   .tfsearch:focus{border-bottom-color:var(--ink);}
@@ -267,13 +319,31 @@
   .tfopt input{flex:none;width:15px;height:15px;accent-color:var(--accent);}
   .tfopt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .tfopt.nomatch{display:none;}
+
+  /* ledger type rule: only the team band name + table headers stay uppercase */
+  .sechead{font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;
+    color:var(--ink);border-bottom-color:var(--rule-strong);padding-bottom:10px;}
+  .field > span{font-family:var(--mono);font-size:10.5px;letter-spacing:0;text-transform:none;color:var(--muted);}
+  .tid{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted-2);}
+  .setlabel{letter-spacing:0;text-transform:none;font-size:10.5px;}
+  .mini{letter-spacing:.02em;text-transform:none;font-size:10.5px;}
+  .xbtn{letter-spacing:.02em;text-transform:none;font-size:10.5px;}
+  .seg button{letter-spacing:.02em;text-transform:none;font-size:11px;}
+  .chips button{letter-spacing:.02em;text-transform:none;font-size:11px;}
+  .gsitem .gm{letter-spacing:0;text-transform:none;font-size:10.5px;}
+  .gsitem .plus{letter-spacing:.02em;text-transform:none;font-size:10.5px;}
+  .gsfallback summary{letter-spacing:.02em;text-transform:none;font-size:11px;}
+  .recentpick{letter-spacing:0;text-transform:none;font-size:10.5px;}
+  .modetab{letter-spacing:.02em;text-transform:none;}
+  .kicker{text-transform:none;}
+  .tfquick button{letter-spacing:.02em;text-transform:none;font-size:10.5px;}
 </style>
 </head>
 <body>
 
 <!-- ============ AUTH (logged out) ============ -->
 <div id="auth" class="authwrap" hidden>
-  <h1 class="brand" style="text-align:center;"><span class="ball">⚽</span>Soccer Stalker</h1>
+  <h1 class="authbrand" style="text-align:center;">Soccer Stalker</h1>
   <p class="kicker" style="text-align:center;">Follow a team · get every score</p>
 
   <section style="margin-top:40px;">
@@ -294,13 +364,21 @@
 <!-- ============ APP (logged in) ============ -->
 <div id="app" class="wrap" hidden>
   <div class="apphead">
-    <h1 class="brand"><span class="ball">⚽</span>Soccer Stalker</h1>
+    <div class="apphead-l">
+      <span class="brand">Soccer Stalker</span>
+      <nav class="topnav">
+        <button class="tabnav" data-nav="home">Games</button>
+        <button class="tabnav" data-nav="teams">Teams</button>
+        <button class="tabnav" data-nav="settings">Settings</button>
+      </nav>
+    </div>
     <div class="appacts">
-      <button id="syncBtn" class="synclink" aria-label="Sync now">↻ Sync</button>
+      <span class="syncedat" id="syncedAt" hidden></span>
+      <button id="syncBtn" class="synclink">sync</button>
       <div class="navwrap">
-        <button id="menuBtn" class="menubtn" aria-label="Menu" aria-expanded="false">☰</button>
+        <button id="menuBtn" class="menubtn" aria-label="Menu" aria-expanded="false">menu</button>
         <nav id="navMenu" class="navmenu" hidden>
-          <button class="navitem" data-nav="home">Home</button>
+          <button class="navitem" data-nav="home">Games</button>
           <button class="navitem" data-nav="teams">Teams</button>
           <button class="navitem" data-nav="settings">Settings</button>
         </nav>
@@ -362,28 +440,41 @@
   </section>
 
   <section class="view" data-view="home">
-    <div class="sechead">Games</div>
-    <div class="controls">
-      <div class="seg">
-        <button data-group="team">By team</button>
-        <button data-group="combined">Combined</button>
+    <div class="stateline">
+      <div class="stwrap">
+        <button class="stbtn" id="viewSummaryBtn" aria-expanded="false">by team · compact</button>
+        <div id="viewPanel" class="pop" hidden>
+          <div class="poprow">
+            <span class="poplabel">Group</span>
+            <div class="seg">
+              <button data-group="team">By team</button>
+              <button data-group="combined">Combined</button>
+            </div>
+          </div>
+          <div class="poprow">
+            <span class="poplabel">Density</span>
+            <div class="seg">
+              <button data-view="compact">Compact</button>
+              <button data-view="expanded">Expanded</button>
+            </div>
+          </div>
+          <div class="poprow">
+            <span class="poplabel">Show</span>
+            <div class="chips">
+              <button data-range="recent">Recent</button>
+              <button data-range="upcoming">Upcoming</button>
+              <button data-range="history">History</button>
+            </div>
+          </div>
+          <div id="recentPick" class="recentpick" hidden>
+            <span class="rplabel">Recent window</span>
+            <span class="stepper"><button data-adj="before" data-d="-1" aria-label="less before">–</button><b id="rpBefore">2</b><span class="unit">w before</span><button data-adj="before" data-d="1" aria-label="more before">+</button></span>
+            <span class="stepper"><button data-adj="after" data-d="-1" aria-label="less after">–</button><b id="rpAfter">2</b><span class="unit">w after</span><button data-adj="after" data-d="1" aria-label="more after">+</button></span>
+          </div>
+        </div>
       </div>
-      <div class="seg">
-        <button data-view="expanded">Expanded</button>
-        <button data-view="compact">Compact</button>
-      </div>
-      <div class="chips">
-        <button data-range="recent">Recent</button>
-        <button data-range="upcoming">Upcoming</button>
-        <button data-range="history">History</button>
-      </div>
+      <div id="teamFilter" class="teamfilter"></div>
     </div>
-    <div id="recentPick" class="recentpick" hidden>
-      <span class="rplabel">Recent window</span>
-      <span class="stepper"><button data-adj="before" data-d="-1" aria-label="less before">–</button><b id="rpBefore">2</b><span class="unit">w before</span><button data-adj="before" data-d="1" aria-label="more before">+</button></span>
-      <span class="stepper"><button data-adj="after" data-d="-1" aria-label="less after">–</button><b id="rpAfter">2</b><span class="unit">w after</span><button data-adj="after" data-d="1" aria-label="more after">+</button></span>
-    </div>
-    <div id="teamFilter" class="teamfilter"></div>
     <div id="games"><div class="empty">Loading…</div></div>
   </section>
 
@@ -420,7 +511,7 @@
   // ---- games view state (persisted per device) ----
   let allGames = [];
   let groupMode = "team";                                    // "team" | "combined"
-  let viewMode = "expanded";                                 // "expanded" | "compact"
+  let viewMode = "compact";                                  // "compact" (ledger) | "expanded" (cards)
   let ranges = { recent: true, upcoming: false, history: false };
   let recentBefore = 2, recentAfter = 2;                     // "Recent" window, in weeks
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
@@ -688,14 +779,12 @@
 
   let tfOpen = false;
   function tfLabel() {
-    const groups = teamGroups();
-    const total = groups.length;
-    const shown = groups.filter(gr => !hiddenTeams.has(gr.key)).length;
-    return shown === total ? ("All " + total + " teams") : (shown + " of " + total + " shown");
+    const shown = teamGroups().filter(gr => !hiddenTeams.has(gr.key)).length;
+    return shown + " team" + (shown === 1 ? "" : "s") + " · " + gamesShown + " game" + (gamesShown === 1 ? "" : "s");
   }
   function updateTfLabel() {
     const b = $("tfBtn"); if (!b) return;
-    b.innerHTML = '<span class="tflabel">Show</span> ' + escapeHtml(tfLabel()) + ' <span class="tfcaret">▾</span>';
+    b.textContent = tfLabel();
   }
   function renderTeamFilter() {
     const el = $("teamFilter");
@@ -703,8 +792,7 @@
     const groups = teamGroups();
     const showSearch = groups.length > 8;
     el.innerHTML =
-      '<button class="tfbtn" id="tfBtn" aria-expanded="' + tfOpen + '"><span class="tflabel">Show</span> '
-        + escapeHtml(tfLabel()) + ' <span class="tfcaret">▾</span></button>'
+      '<button class="tfbtn" id="tfBtn" aria-expanded="' + tfOpen + '">' + escapeHtml(tfLabel()) + '</button>'
       + '<div class="tfpanel" id="tfPanel"' + (tfOpen ? '' : ' hidden') + '>'
         + (showSearch ? '<input class="tfsearch" id="tfSearch" type="text" placeholder="Filter teams…" autocomplete="off">' : '')
         + '<div class="tfquick"><button data-tfq="all">Select all</button><button data-tfq="none">Clear</button></div>'
@@ -885,7 +973,7 @@
       + '<span class="tsc ' + (side.mine ? rcls : "") + '">' + sc + '</span></div>';
   }
 
-  // ---- compact (dense table) view ----
+  // ---- ledger (compact) view ----
   function teamRecord(teamId) {
     let w = 0, l = 0, t = 0;
     for (const g of allGames) {
@@ -897,41 +985,89 @@
     }
     return { w, l, t };
   }
-  function cDate(g) {
-    const d = gameDate(g);
-    return d ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) : "TBD";
-  }
-  function cTime(g) {
-    if (!g.match_time) return "";
-    const d = new Date(g.match_time);
-    return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
-  }
   function cResult(g) {
-    if (g.team_score == null || g.opponent_score == null) return { txt: "–", cls: "" };
+    if (g.team_score == null || g.opponent_score == null) return { txt: "—", cls: "" };
     const cls = resultCls(g), letter = cls === "win" ? "W" : cls === "loss" ? "L" : "D";
     return { txt: letter + " " + g.team_score + "-" + g.opponent_score, cls };
   }
-  function compactRow(g, withTeam) {
-    const r = cResult(g);
-    const teamCell = withTeam
-      ? '<div class="c-team">' + (g.team_logo ? '<img src="' + g.team_logo + '" alt="">' : "")
-        + escapeHtml(teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "") + '</div>'
-      : "";
-    const div = g.division_name ? '<div class="cdiv">' + escapeHtml(g.division_name) + '</div>' : "";
-    return '<tr class="crow" data-url="' + escapeHtml(gameUrl(g)) + '">'
-      + '<td><span class="c-date">' + escapeHtml(cDate(g)) + '</span>'
-        + (cTime(g) ? '<div class="c-time">' + escapeHtml(cTime(g)) + '</div>' : "") + '</td>'
-      + '<td>' + teamCell + '<div class="c-opp">' + escapeHtml(withClub(g.opponent_id, g.opponent_name) || "TBD") + '</div></td>'
-      + '<td class="c-res ' + r.cls + '">' + escapeHtml(r.txt) + '</td>'
-      + '<td class="c-event">' + escapeHtml(g.event_name || "") + div + '</td>'
+  function isDone(g) { return g.team_score != null && g.opponent_score != null; }
+  function monogram(name) {
+    const parts = (name || "").replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2)).toUpperCase();
+  }
+  // crest as <img> with a two-letter monogram tile as the loading/fallback state
+  function crestTile(logo, name, kind) {
+    const cls = kind === "band" ? "bcrest" : "ocrest";
+    const mono = escapeHtml(monogram(name));
+    if (logo) return '<img class="' + cls + '" src="' + escapeHtml(logo) + '" alt=""'
+      + ' onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'' + cls + '\',textContent:\'' + mono + '\'}))">';
+    return '<span class="' + cls + '">' + mono + '</span>';
+  }
+  function ledTime(g) {
+    if (!g.match_time) return "";
+    const d = new Date(g.match_time);
+    if (isNaN(d)) return "";
+    let h = d.getHours(); const m = d.getMinutes(), ap = h >= 12 ? "p" : "a";
+    h = h % 12; if (h === 0) h = 12;
+    return h + ":" + String(m).padStart(2, "0") + ap;
+  }
+  function ledDate(g, weekday) {
+    const d = gameDate(g);
+    if (!d) return "TBD";
+    return d.toLocaleDateString([], weekday
+      ? { weekday: "short", month: "short", day: "numeric" }
+      : { month: "short", day: "numeric" });
+  }
+  // one ledger row. Completed games hide time + venue (noise once played);
+  // upcoming games keep the time and append the field to the event line.
+  function ledRow(g, combined) {
+    const done = isDone(g), r = cResult(g), time = ledTime(g);
+    const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
+    const oppCrest = crestTile(g.opponent_logo, oppName, "opp");
+    const event = g.event_name || "", field = g.field_name || "", venue = g.venue_name || "";
+    const tag = combined ? (teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "") : "";
+    const pre = tag ? tag + " · " : "";
+    const evPhone = pre + (done ? event : [event, field].filter(Boolean).join(" · "));
+    const evDesk = pre + event;
+    const venDesk = done ? "—" : ([field, venue].filter(Boolean).join(", ") || "TBD");
+    const dateCell = '<span class="dmob">' + escapeHtml(ledDate(g, false)) + '</span>'
+      + '<span class="ddesk">' + escapeHtml(ledDate(g, true)) + '</span>'
+      + (!done && time ? '<span class="dtime">' + escapeHtml(time) + '</span>' : "");
+    return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
+      + '<td class="l-date">' + dateCell + '</td>'
+      + '<td class="l-opp"><div class="oline">' + oppCrest + '<span class="oname">' + escapeHtml(oppName) + '</span></div>'
+        + (evPhone ? '<div class="evline">' + escapeHtml(evPhone) + '</div>' : "") + '</td>'
+      + '<td class="l-res ' + (done ? r.cls : "") + '">' + (done ? escapeHtml(r.txt) : "—") + '</td>'
+      + '<td class="l-event">' + escapeHtml(evDesk) + '</td>'
+      + '<td class="l-venue' + (done ? " faint" : "") + '">' + escapeHtml(venDesk) + '</td>'
       + '</tr>';
   }
-  function compactTable(games, withTeam) {
-    return '<table class="ctable"><thead><tr>'
-      + '<th>Date</th><th>' + (withTeam ? "Team · Opponent" : "Opponent") + '</th><th style="text-align:right">Result</th><th>Event</th>'
+  function ledgerTable(games, combined) {
+    return '<table class="ledger"><thead><tr>'
+      + '<th class="h-date">Date</th><th class="h-opp">Opponent</th>'
+      + '<th class="h-res">Result</th><th class="h-event">Event</th><th class="h-venue">Venue</th>'
       + '</tr></thead><tbody>'
-      + games.map(g => compactRow(g, withTeam)).join("")
+      + games.map(g => ledRow(g, combined)).join("")
       + '</tbody></table>';
+  }
+  // team band = the shared group header above a ledger table or the cards
+  function bandHtml(key, gs) {
+    const primary = groupPrimary(key);
+    const pid = primary ? primary.team_id : key;
+    const label = (primary && primary.name) || withClub(pid, gs[0].team_name) || ("Team " + key);
+    const logo = (primary && primary.logo) || (gs.find(x => x.team_logo) || {}).team_logo || gs[0].team_logo;
+    const ids = groupMembers(key).map(m => String(m.team_id));
+    const rec = groupRecord(ids.length ? ids : [key]);
+    const total = rec.w + rec.l + rec.t;
+    const div = (gs.find(x => x.division_name) || {}).division_name || "";
+    let recHtml = "";
+    if (total) recHtml = rec.w + "-" + rec.l + "-" + rec.t + (div ? '<span class="brec-div"> · ' + escapeHtml(div) + '</span>' : "");
+    else if (div) recHtml = '<span class="brec-div">' + escapeHtml(div) + '</span>';
+    return '<div class="teamband">' + crestTile(logo, label, "band")
+      + '<span class="bname">' + escapeHtml(label) + '</span>'
+      + (recHtml ? '<span class="brec">' + recHtml + '</span>' : "")
+      + '</div>';
   }
 
   // ---- date/range filtering ----
@@ -973,21 +1109,23 @@
       + '<div class="when">' + meta + '</div></a>';
   }
 
+  let gamesShown = 0;
   function renderGames() {
     const el = $("games");
-    if (!allGames.length) { el.innerHTML = '<div class="empty">No games synced yet.<br>They appear after the next background sync.</div>'; return; }
-    if (!anyRange()) { el.innerHTML = '<div class="empty">Pick a filter — recent, upcoming, or history.</div>'; return; }
+    const compact = viewMode !== "expanded";   // compact = ledger, expanded = cards
+    if (!allGames.length) { el.innerHTML = '<div class="empty">no games synced yet · they appear after the next sync</div>'; gamesShown = 0; updateTfLabel(); return; }
+    if (!anyRange()) { el.innerHTML = '<div class="empty">pick a filter — recent, upcoming, or history</div>'; gamesShown = 0; updateTfLabel(); return; }
     const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && inRanges(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return da - db;
     });
-    if (!list.length) { el.innerHTML = '<div class="empty">No games in this range.</div>'; return; }
-    const compact = viewMode === "compact";
+    gamesShown = list.length;
+    if (!list.length) { el.innerHTML = '<div class="empty">no games in this range</div>'; updateTfLabel(); return; }
     if (groupMode === "combined") {
-      el.innerHTML = compact ? compactTable(list, true) : list.map(g => gameRow(g)).join("");
+      el.innerHTML = compact ? ledgerTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
-      // group by LINKED-team key, so two follows for one real team merge into one
+      // group by LINKED-team key, so two follows for one real team merge into one band
       const byGroup = {};
       for (const g of list) (byGroup[groupKeyOf(g.team_id)] ||= []).push(g);
       const order = teamGroups().map(gr => gr.key);
@@ -995,26 +1133,12 @@
         const ia = order.indexOf(a[0]), ib = order.indexOf(b[0]);
         return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
       });
-      el.innerHTML = entries.map(([key, gs]) => {
-        const primary = groupPrimary(key);
-        const pid = primary ? primary.team_id : key;
-        const label = (primary && primary.name) || withClub(pid, gs[0].team_name) || ("Team " + key);
-        const logo = (primary && primary.logo) || (gs.find(x => x.team_logo) || {}).team_logo || gs[0].team_logo;
-        let head = '<div class="grouphd">' + (logo ? '<img src="' + logo + '" alt="">' : "");
-        if (compact) {
-          const memberIds = groupMembers(key).map(m => String(m.team_id));
-          const rec = groupRecord(memberIds.length ? memberIds : [key]);
-          const recTxt = (rec.w + rec.l + rec.t) ? ("Record: " + rec.w + "W-" + rec.l + "L-" + rec.t + "T") : "";
-          head += '<div class="ghinfo"><span class="gname">' + escapeHtml(label) + '</span>'
-            + (recTxt ? '<span class="grec">' + recTxt + '</span>' : "") + '</div>';
-        } else {
-          head += '<span class="gname">' + escapeHtml(label) + '</span>';
-        }
-        head += '</div>';
-        return '<div class="teamgroup">' + head
-          + (compact ? compactTable(gs, false) : gs.map(g => gameRow(g)).join("")) + '</div>';
-      }).join("");
+      el.innerHTML = entries.map(([key, gs]) =>
+        '<div class="teamblock">' + bandHtml(key, gs)
+        + (compact ? ledgerTable(gs, false) : gs.map(g => gameRow(g)).join("")) + '</div>'
+      ).join("");
     }
+    updateTfLabel();
   }
 
   function syncControls() {
@@ -1026,16 +1150,21 @@
     $("recentPick").hidden = !ranges.recent;
     $("rpBefore").textContent = recentBefore;
     $("rpAfter").textContent = recentAfter;
+    const vb = $("viewSummaryBtn");
+    if (vb) vb.textContent = (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
   }
 
   async function loadGames() {
     const el = $("games");
     const { data: teams } = await sb.from("followed_teams").select("team_id");
     const ids = (teams || []).map(t => t.team_id);
-    if (!ids.length) { allGames = []; el.innerHTML = '<div class="empty">Follow a team to see its games.</div>'; return; }
+    if (!ids.length) { allGames = []; el.innerHTML = '<div class="empty">no teams yet · add one in Teams</div>'; gamesShown = 0; updateTfLabel(); return; }
     const { data: games, error } = await sb.from("games").select("*").in("team_id", ids);
-    if (error) { el.innerHTML = '<div class="empty">Error: ' + escapeHtml(errmsg(error)) + '</div>'; return; }
+    if (error) { el.innerHTML = '<div class="empty">error loading games — ' + escapeHtml(errmsg(error)) + '</div>'; return; }
     allGames = games || [];
+    // "synced X ago" reflects the freshest game the poller wrote
+    const maxUpd = allGames.reduce((mx, g) => { const t = g.updated_at ? Date.parse(g.updated_at) : 0; return t > mx ? t : mx; }, 0);
+    if (maxUpd) { lastSyncedAt = maxUpd; refreshSyncedAt(); }
     renderGames();
   }
 
@@ -1220,7 +1349,7 @@
   $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
   $("matchChk").addEventListener("change", () => { $("matchSelWrap").hidden = !$("matchChk").checked; });
 
-  // close the team-filter + nav dropdowns on any outside click
+  // close the team-filter + nav + view-toggle popovers on any outside click
   document.addEventListener("click", () => {
     if (tfOpen) {
       tfOpen = false;
@@ -1229,14 +1358,16 @@
     }
     const nm = $("navMenu");
     if (nm && !nm.hidden) { nm.hidden = true; $("menuBtn").setAttribute("aria-expanded", "false"); }
+    const vp = $("viewPanel");
+    if (vp && !vp.hidden) { vp.hidden = true; $("viewSummaryBtn").setAttribute("aria-expanded", "false"); }
   });
 
-  // top-nav (Home / Teams / Settings)
+  // top-nav (Games / Teams / Settings) — inline tabs on desktop, dropdown on phone
   let currentView = "home";
   function showView(name) {
     currentView = name;
     document.querySelectorAll("#app > .view").forEach(el => { el.hidden = el.dataset.view !== name; });
-    document.querySelectorAll(".navitem").forEach(b => b.classList.toggle("on", b.dataset.nav === name));
+    document.querySelectorAll(".navitem, .tabnav").forEach(b => b.classList.toggle("on", b.dataset.nav === name));
     editingId = null; linkingId = null;
     if (name === "teams") renderTeams();
     $("navMenu").hidden = true;
@@ -1250,21 +1381,40 @@
     $("menuBtn").setAttribute("aria-expanded", String(willOpen));
   });
   $("navMenu").addEventListener("click", e => e.stopPropagation());
-  document.querySelectorAll(".navitem").forEach(b => b.addEventListener("click", () => showView(b.dataset.nav)));
+  document.querySelectorAll(".navitem, .tabnav").forEach(b => b.addEventListener("click", () => showView(b.dataset.nav)));
 
-  // sync now — for now this refreshes from the database; once the poller (backend)
-  // exists we'll first trigger the gotSport pull here, then reload.
+  // view-toggle popover (grouping / density / range) opened from the left summary text
+  $("viewSummaryBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = $("viewPanel").hidden;
+    $("viewPanel").hidden = !willOpen;
+    $("viewSummaryBtn").setAttribute("aria-expanded", String(willOpen));
+  });
+  $("viewPanel").addEventListener("click", e => e.stopPropagation());
+
+  // sync now — triggers a real gotSport pull (Edge Function), falls back to a DB refresh.
+  let lastSyncedAt = null;
+  function agoText(ts) {
+    if (!ts) return "";
+    const s = Math.round((Date.now() - ts) / 1000);
+    if (s < 45) return "synced just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return "synced " + m + "m ago";
+    const h = Math.round(m / 60);
+    if (h < 24) return "synced " + h + "h ago";
+    return "synced " + Math.round(h / 24) + "d ago";
+  }
+  function refreshSyncedAt() { const el = $("syncedAt"); if (el && lastSyncedAt) el.textContent = agoText(lastSyncedAt); }
+  setInterval(refreshSyncedAt, 60000);
   async function syncNow() {
-    const b = $("syncBtn"); const orig = b.textContent;
-    b.disabled = true; b.textContent = "↻ Syncing…";
-    let live = false;
+    const b = $("syncBtn"); b.disabled = true; b.textContent = "syncing…";
     try {
-      const { error } = await sb.functions.invoke("sync", { method: "POST" });
-      if (!error) live = true;                 // real gotSport pull succeeded
-    } catch (e) { /* sync function not deployed yet — fall back to a refresh */ }
-    try { await loadTeams(); await loadClubs(); await loadGames(); } catch (e) {}
-    b.textContent = live ? "✓ Synced" : "↻ Refreshed";
-    setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1500);
+      try { await sb.functions.invoke("sync", { method: "POST" }); } catch (e) {}
+      await loadTeams(); await loadClubs(); await loadGames();
+      lastSyncedAt = Date.now(); refreshSyncedAt();
+    } catch (e) {}
+    b.textContent = "synced just now"; b.disabled = false;
+    setTimeout(() => { b.textContent = "sync"; }, 2000);
   }
   $("syncBtn").addEventListener("click", syncNow);
 
@@ -1273,9 +1423,9 @@
     if (b.dataset.view) viewMode = b.dataset.view;
     saveView(); syncControls(); renderGames();
   }));
-  // open a compact-table row's source page
+  // open a ledger row's source page
   $("games").addEventListener("click", e => {
-    const tr = e.target.closest(".crow[data-url]");
+    const tr = e.target.closest(".lrow[data-url]");
     if (tr) window.open(tr.dataset.url, "_blank", "noopener");
   });
   document.querySelectorAll(".chips button").forEach(b => b.addEventListener("click", () => {
