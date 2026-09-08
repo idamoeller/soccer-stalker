@@ -958,10 +958,30 @@
     if (g.team_score < g.opponent_score) return "loss";
     return "draw";
   }
-  // Link each game back to the gotSport page the score came from.
+  // Pull the age group + gender out of a gotSport division name so we can deep-link
+  // to that division's tournament schedule (e.g. "U13G GU13 - League 2" -> age 13, f).
+  // gotSport's schedule page only filters by ?age=<U-number>&gender=<f|m> (its group
+  // ids aren't in the match feed), which lands you on your age group's schedule +
+  // standings instead of the whole event.
+  function eventAgeGender(dn) {
+    if (!dn) return null;
+    const am = /U\s?(\d{1,2})/i.exec(dn) || /\b(\d{1,2})\s?[GB]\b/i.exec(dn);
+    const age = am ? am[1] : null;
+    const isG = /girls|GU\s?\d|\d\s?G\b|\bG\d/i.test(dn);
+    const isB = /boys|BU\s?\d|\d\s?B\b|\bB\d/i.test(dn);
+    const gender = isG && !isB ? "f" : (isB && !isG ? "m" : null);
+    return (age && gender) ? { age, gender } : null;
+  }
+  // Link each game back to the most specific gotSport page we can build.
   function gameUrl(g) {
-    if (g.event_id) return "https://system.gotsport.com/org_event/events/" + g.event_id + "/schedules";
-    return "https://rankings.gotsport.com/teams/" + encodeURIComponent(g.team_id);
+    const id = String(g.team_id || "");
+    if (id.startsWith("ecnl-")) return "https://www.theecnl.com/";   // TGS has no shareable per-team URL
+    if (g.event_id) {
+      const base = "https://system.gotsport.com/org_event/events/" + g.event_id + "/schedules";
+      const f = eventAgeGender(g.division_name);
+      return f ? base + "?age=" + f.age + "&gender=" + f.gender : base;
+    }
+    return "https://rankings.gotsport.com/teams/" + encodeURIComponent(id);
   }
   function sideLine(side, rcls) {
     const sc = side.score == null ? "" : side.score;
