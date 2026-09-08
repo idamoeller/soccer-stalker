@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.idamoeller.soccer-cookie</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/.venv/bin/python</string>
+        <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/refresh_cookie.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday</string>
+    <!-- Once a day at 3:00am (no daytime browser pop-up; the cookie lasts ~27h). -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/refresh.log</string>
+</dict>
+</plist>

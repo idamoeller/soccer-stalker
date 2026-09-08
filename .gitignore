@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 design-reference.html
+
+# Matchday scraper (Mac-native, local only)
+matchday/.venv/
+matchday/cookies.json
+matchday/*.log

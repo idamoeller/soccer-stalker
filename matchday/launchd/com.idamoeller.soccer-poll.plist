@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.idamoeller.soccer-poll</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/.venv/bin/python</string>
+        <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/poll_scores.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday</string>
+    <!-- Every 3 minutes. Off game-hours this is two tiny Supabase reads + exit;
+         it only fetches gotSport when a followed team's game is near kickoff. -->
+    <key>StartInterval</key>
+    <integer>180</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/poll.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/idamoeller/coding-projects/soccer-stalker/matchday/poll.log</string>
+</dict>
+</plist>
