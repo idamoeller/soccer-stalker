@@ -1072,16 +1072,8 @@
     const pid = primary ? primary.team_id : key;
     const label = (primary && primary.name) || withClub(pid, gs[0].team_name) || ("Team " + key);
     const logo = (primary && primary.logo) || (gs.find(x => x.team_logo) || {}).team_logo || gs[0].team_logo;
-    const ids = groupMembers(key).map(m => String(m.team_id));
-    const rec = groupRecord(ids.length ? ids : [key]);
-    const total = rec.w + rec.l + rec.t;
-    const div = (gs.find(x => x.division_name) || {}).division_name || "";
-    let recHtml = "";
-    if (total) recHtml = rec.w + "-" + rec.l + "-" + rec.t + (div ? '<span class="brec-div"> · ' + escapeHtml(div) + '</span>' : "");
-    else if (div) recHtml = '<span class="brec-div">' + escapeHtml(div) + '</span>';
     return '<div class="teamband">' + crestTile(logo, label, "band")
       + '<span class="bname">' + escapeHtml(label) + '</span>'
-      + (recHtml ? '<span class="brec">' + recHtml + '</span>' : "")
       + '</div>';
   }
 
