@@ -503,6 +503,10 @@
               <button data-tf="past">Past</button>
             </div>
           </div>
+          <div class="poprow" id="pastWindowRow" hidden>
+            <span class="poplabel">Past window</span>
+            <span class="stepper"><button data-pw="-1" aria-label="fewer weeks">–</button><b id="pwWeeks">8</b><span class="unit">weeks back</span><button data-pw="1" aria-label="more weeks">+</button></span>
+          </div>
         </div>
       </div>
       <div id="teamFilter" class="teamfilter"></div>
@@ -559,17 +563,20 @@
   let groupMode = "team";                                    // "team" | "combined"
   let viewMode = "compact";                                  // "compact" (ledger) | "expanded" (cards)
   let timeframe = "upcoming";                                // "upcoming" | "past" (mutually exclusive)
+  let pastWeeks = 8;                                         // "Past" lookback window, in weeks
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
+  function clampWeeks(n) { n = Math.round(Number(n)); return n < 1 ? 1 : (n > 52 ? 52 : n); }
   try {
     const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
     if (saved) {
       if (saved.groupMode === "team" || saved.groupMode === "combined") groupMode = saved.groupMode;
       if (saved.viewMode === "expanded" || saved.viewMode === "compact") viewMode = saved.viewMode;
       if (saved.timeframe === "upcoming" || saved.timeframe === "past") timeframe = saved.timeframe;
+      if (Number.isFinite(saved.pastWeeks)) pastWeeks = clampWeeks(saved.pastWeeks);
       if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
   } catch (e) {}
-  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, timeframe, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
+  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, timeframe, pastWeeks, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
 
   // ---------- helpers ----------
   function escapeHtml(s) {
@@ -1204,13 +1211,15 @@
     const compact = viewMode !== "expanded";   // compact = ledger, expanded = cards
     if (!allGames.length) { el.innerHTML = '<div class="empty">no games synced yet · they appear after the next sync</div>'; gamesShown = 0; updateTfLabel(); return; }
     const past = timeframe === "past";
-    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past).sort((a, b) => {
+    const cutoff = Date.now() - pastWeeks * 7 * 86400000;    // "Past" lookback horizon
+    const inWindow = g => { if (!past) return true; const d = gameDate(g); return !d || d.getTime() >= cutoff; };
+    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past && inWindow(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return past ? db - da : da - db;          // past: newest first · upcoming: soonest first
     });
     gamesShown = list.length;
-    if (!list.length) { el.innerHTML = '<div class="empty">no ' + (past ? 'past' : 'upcoming') + ' games</div>'; updateTfLabel(); return; }
+    if (!list.length) { el.innerHTML = '<div class="empty">' + (past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
     if (groupMode === "combined") {
       el.innerHTML = compact ? ledgerTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
@@ -1374,8 +1383,11 @@
       if (b.dataset.view) b.classList.toggle("on", b.dataset.view === viewMode);
       if (b.dataset.tf) b.classList.toggle("on", b.dataset.tf === timeframe);
     });
+    const past = timeframe === "past";
+    const pwRow = $("pastWindowRow"); if (pwRow) pwRow.hidden = !past;
+    const pw = $("pwWeeks"); if (pw) pw.textContent = pastWeeks;
     const vb = $("viewSummaryBtn");
-    if (vb) vb.textContent = (timeframe === "past" ? "past" : "upcoming") + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
+    if (vb) vb.textContent = (past ? "past " + pastWeeks + "w" : "upcoming") + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
   }
 
   async function loadGames() {
@@ -1649,6 +1661,10 @@
     if (b.dataset.group) groupMode = b.dataset.group;
     if (b.dataset.view) viewMode = b.dataset.view;
     if (b.dataset.tf) timeframe = b.dataset.tf;
+    saveView(); syncControls(); renderGames();
+  }));
+  document.querySelectorAll("#pastWindowRow button[data-pw]").forEach(b => b.addEventListener("click", () => {
+    pastWeeks = clampWeeks(pastWeeks + parseInt(b.dataset.pw, 10));
     saveView(); syncControls(); renderGames();
   }));
   // open a ledger row's source page
