@@ -287,21 +287,36 @@ def find_scores(game, parsed):
 # --------------------------------------------------------------------------- #
 # Notifications
 # --------------------------------------------------------------------------- #
+def game_url(game):
+    """Tap-to-open target: this game's live gotSport schedule page, age+gender
+    filtered -- the freshest public view of the score. Mirrors the website's
+    game-row deep link. Returns None if we can't build one (alert still sends)."""
+    ev = str(game.get("event_id") or "").strip()
+    if not ev:
+        return None
+    age, gender = event_age_gender(game.get("division_name"))
+    return schedule_url(ev, age, gender)
+
+
 def notify(game, ts, os_, label):
     name = game["team_name"]
     opp = game["opponent_name"]
     letter = "W" if ts > os_ else "L" if ts < os_ else "T"
-    tag = {"W": "green_circle", "L": "red_circle", "T": "white_circle"}[letter]
     title = f"{name} {ts}-{os_} {opp}"
     where = f" · {label}" if label else (f" · {game.get('event_name')}" if game.get("event_name") else "")
     message = f"{letter} {ts}-{os_} vs {opp}{where}"
     print(f"    ALERT -> {title} | {message}")
     if not NTFY_TOPIC:
         return
+    # ⚽ leads the alert (the "soccer" tag renders as an emoji before the title).
+    # "Click" makes tapping the alert open the live page.
+    headers = {"Title": title, "Tags": "soccer", "Priority": "high"}
+    url = game_url(game)
+    if url:
+        headers["Click"] = url
     try:
         requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode("utf-8"),
-                      headers={"Title": title, "Tags": f"soccer,{tag}", "Priority": "high"},
-                      timeout=15)
+                      headers=headers, timeout=15)
     except requests.RequestException as e:
         print(f"    (ntfy failed: {e})")
 
