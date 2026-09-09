@@ -130,6 +130,25 @@
     color:var(--muted-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .l-res.win{color:var(--win);} .l-res.loss{color:var(--loss);} .l-res.draw{color:var(--draw);}
   .l-event{display:none;}                              /* desktop only */
+  /* combined + compact: a gotSport-style schedule table (scrolls sideways when narrow) */
+  .gscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:2px;}
+  .gsched{border-collapse:collapse;font-family:var(--sans);min-width:700px;width:100%;}
+  .gsched thead th{text-align:left;padding:10px 12px 7px 0;border-bottom:1px solid var(--rule);
+    font-family:var(--mono);font-size:9.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted-2);white-space:nowrap;}
+  .gsched td{padding:10px 12px 10px 0;border-bottom:1px solid var(--rule-soft);vertical-align:middle;}
+  .gsched .g-date{white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+  .gsched .g-date .dtime{color:var(--muted-2);margin-left:6px;}
+  .gsched .g-team{min-width:140px;max-width:180px;}
+  .gteam{display:flex;align-items:center;gap:8px;}
+  .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;}
+  .gme .gtname{font-weight:600;}
+  .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:500;
+    color:var(--ink);font-variant-numeric:tabular-nums;padding-left:8px;padding-right:8px;}
+  .gsched .g-event{max-width:160px;font-size:12px;color:var(--ink-2);line-height:1.25;}
+  .gsched .g-flight{max-width:130px;font-size:12px;color:var(--muted-2);line-height:1.25;}
+  .gsched .lrow{cursor:pointer;}
+  .gsched .lrow:hover td{background:#f7f7f4;}
   @media (min-width:760px){
     .teamblock{margin-top:26px;}
     .teamband{gap:11px;padding:9px 10px;}
@@ -479,16 +498,10 @@
           </div>
           <div class="poprow">
             <span class="poplabel">Show</span>
-            <div class="chips">
-              <button data-range="recent">Recent</button>
-              <button data-range="upcoming">Upcoming</button>
-              <button data-range="history">History</button>
+            <div class="seg">
+              <button data-tf="upcoming">Upcoming</button>
+              <button data-tf="past">Past</button>
             </div>
-          </div>
-          <div id="recentPick" class="recentpick" hidden>
-            <span class="rplabel">Recent window</span>
-            <span class="stepper"><button data-adj="before" data-d="-1" aria-label="less before">–</button><b id="rpBefore">2</b><span class="unit">w before</span><button data-adj="before" data-d="1" aria-label="more before">+</button></span>
-            <span class="stepper"><button data-adj="after" data-d="-1" aria-label="less after">–</button><b id="rpAfter">2</b><span class="unit">w after</span><button data-adj="after" data-d="1" aria-label="more after">+</button></span>
           </div>
         </div>
       </div>
@@ -545,22 +558,18 @@
   let allGames = [];
   let groupMode = "team";                                    // "team" | "combined"
   let viewMode = "compact";                                  // "compact" (ledger) | "expanded" (cards)
-  let ranges = { recent: true, upcoming: false, history: false };
-  let recentBefore = 2, recentAfter = 2;                     // "Recent" window, in weeks
+  let timeframe = "upcoming";                                // "upcoming" | "past" (mutually exclusive)
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
-  function clampWk(n) { n = Math.round(Number(n)); return n < 0 ? 0 : (n > 52 ? 52 : n); }
   try {
     const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
     if (saved) {
       if (saved.groupMode === "team" || saved.groupMode === "combined") groupMode = saved.groupMode;
       if (saved.viewMode === "expanded" || saved.viewMode === "compact") viewMode = saved.viewMode;
-      if (saved.ranges) ranges = Object.assign(ranges, saved.ranges);
-      if (Number.isFinite(saved.recentBefore)) recentBefore = clampWk(saved.recentBefore);
-      if (Number.isFinite(saved.recentAfter)) recentAfter = clampWk(saved.recentAfter);
+      if (saved.timeframe === "upcoming" || saved.timeframe === "past") timeframe = saved.timeframe;
       if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
   } catch (e) {}
-  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, ranges, recentBefore, recentAfter, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
+  function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, timeframe, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
 
   // ---------- helpers ----------
   function escapeHtml(s) {
@@ -813,8 +822,7 @@
 
   let tfOpen = false;
   function tfLabel() {
-    const shown = teamGroups().filter(gr => !hiddenTeams.has(gr.key)).length;
-    return shown + " team" + (shown === 1 ? "" : "s") + " · " + gamesShown + " game" + (gamesShown === 1 ? "" : "s");
+    return "Select teams";
   }
   function updateTfLabel() {
     const b = $("tfBtn"); if (!b) return;
@@ -1094,7 +1102,49 @@
       + '<td class="l-event">' + escapeHtml(ev) + '</td>'
       + '</tr>';
   }
+  // Combined + compact = a gotSport-style schedule table: Date · Team A · Score ·
+  // Team B · Event · Flight/Bracket. Sides are reconstructed from is_home (scores
+  // are stored team-centric); the followed team is bolded so you can spot it.
+  function gschedRow(g) {
+    const done = isDone(g);
+    const meName = teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "TBD";
+    const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
+    let A, B, as_, bs;                                   // A = Team A (home side), B = Team B (away side)
+    if (g.is_home) {
+      A = { name: meName, logo: g.team_logo, me: true };
+      B = { name: oppName, logo: g.opponent_logo, me: false };
+      as_ = g.team_score; bs = g.opponent_score;
+    } else {
+      A = { name: oppName, logo: g.opponent_logo, me: false };
+      B = { name: meName, logo: g.team_logo, me: true };
+      as_ = g.opponent_score; bs = g.team_score;
+    }
+    const time = ledTime(g);
+    const dateCell = '<span class="ddesk">' + escapeHtml(ledDate(g, true)) + '</span>'
+      + (!done && time ? '<span class="dtime">' + escapeHtml(time) + '</span>' : "");
+    const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '">'
+      + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
+    const score = done ? (as_ + ' - ' + bs) : '—';
+    return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
+      + '<td class="g-date">' + dateCell + '</td>'
+      + '<td class="g-team">' + teamCell(A) + '</td>'
+      + '<td class="g-score">' + escapeHtml(score) + '</td>'
+      + '<td class="g-team">' + teamCell(B) + '</td>'
+      + '<td class="g-event">' + escapeHtml(g.event_name || "") + '</td>'
+      + '<td class="g-flight">' + escapeHtml(g.division_name || "") + '</td>'
+      + '</tr>';
+  }
+  function combinedTable(games) {
+    return '<div class="gscroll"><table class="gsched"><thead><tr>'
+      + '<th class="g-date">Date</th><th class="g-team">Team A</th>'
+      + '<th class="g-score">Score</th><th class="g-team">Team B</th>'
+      + '<th class="g-event">Event</th><th class="g-flight">Flight / Bracket</th>'
+      + '</tr></thead><tbody>'
+      + games.map(gschedRow).join("")
+      + '</tbody></table></div>';
+  }
   function ledgerTable(games, combined) {
+    if (combined) return combinedTable(games);           // gotSport-style home/away table
     return '<table class="ledger"><thead><tr>'
       + '<th class="h-date">Date</th><th class="h-opp">Opponent</th>'
       + '<th class="h-res">Result</th><th class="h-event">Event</th>'
@@ -1119,24 +1169,20 @@
     if (g.match_date) { const d = new Date(g.match_date + "T12:00:00"); return isNaN(d) ? null : d; }
     return null;
   }
-  function anyRange() { return ranges.recent || ranges.upcoming || ranges.history; }
   // TBD-bracket placeholders list a team against itself — hide them.
   function isPlaceholder(g) {
     return (g.opponent_id != null && String(g.opponent_id) === String(g.team_id))
         || (!!g.opponent_name && !!g.team_name && g.opponent_name === g.team_name);
   }
-  function inRanges(g) {
-    if (ranges.history) return true;                          // history = everything
-    const d = gameDate(g), now = new Date();
-    if (ranges.upcoming) {                                     // upcoming = every future game (TBD counts)
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      if (!d || d >= today) return true;
-    }
-    if (ranges.recent && d) {                                  // recent = within the chosen weeks window
-      const ms = d.getTime() - now.getTime();
-      if (ms <= recentAfter * 7 * 86400000 && ms >= -recentBefore * 7 * 86400000) return true;
-    }
-    return false;
+  // A game is "past" once it has a final score, or its date is before today.
+  // Undated, unplayed games (e.g. TBD bracket slots) count as upcoming.
+  function isPast(g) {
+    if (isDone(g)) return true;
+    const d = gameDate(g);
+    if (!d) return false;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return d < today;
   }
 
   function gameRow(g) {
@@ -1157,14 +1203,14 @@
     const el = $("games");
     const compact = viewMode !== "expanded";   // compact = ledger, expanded = cards
     if (!allGames.length) { el.innerHTML = '<div class="empty">no games synced yet · they appear after the next sync</div>'; gamesShown = 0; updateTfLabel(); return; }
-    if (!anyRange()) { el.innerHTML = '<div class="empty">pick a filter — recent, upcoming, or history</div>'; gamesShown = 0; updateTfLabel(); return; }
-    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && inRanges(g)).sort((a, b) => {
+    const past = timeframe === "past";
+    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-      return da - db;
+      return past ? db - da : da - db;          // past: newest first · upcoming: soonest first
     });
     gamesShown = list.length;
-    if (!list.length) { el.innerHTML = '<div class="empty">no games in this range</div>'; updateTfLabel(); return; }
+    if (!list.length) { el.innerHTML = '<div class="empty">no ' + (past ? 'past' : 'upcoming') + ' games</div>'; updateTfLabel(); return; }
     if (groupMode === "combined") {
       el.innerHTML = compact ? ledgerTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
@@ -1326,13 +1372,10 @@
     document.querySelectorAll(".seg button").forEach(b => {
       if (b.dataset.group) b.classList.toggle("on", b.dataset.group === groupMode);
       if (b.dataset.view) b.classList.toggle("on", b.dataset.view === viewMode);
+      if (b.dataset.tf) b.classList.toggle("on", b.dataset.tf === timeframe);
     });
-    document.querySelectorAll(".chips button").forEach(b => b.classList.toggle("on", !!ranges[b.dataset.range]));
-    $("recentPick").hidden = !ranges.recent;
-    $("rpBefore").textContent = recentBefore;
-    $("rpAfter").textContent = recentAfter;
     const vb = $("viewSummaryBtn");
-    if (vb) vb.textContent = (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
+    if (vb) vb.textContent = (timeframe === "past" ? "past" : "upcoming") + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
   }
 
   async function loadGames() {
@@ -1605,6 +1648,7 @@
   document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
     if (b.dataset.group) groupMode = b.dataset.group;
     if (b.dataset.view) viewMode = b.dataset.view;
+    if (b.dataset.tf) timeframe = b.dataset.tf;
     saveView(); syncControls(); renderGames();
   }));
   // open a ledger row's source page
@@ -1612,15 +1656,6 @@
     const tr = e.target.closest(".lrow[data-url]");
     if (tr) window.open(tr.dataset.url, "_blank", "noopener");
   });
-  document.querySelectorAll(".chips button").forEach(b => b.addEventListener("click", () => {
-    ranges[b.dataset.range] = !ranges[b.dataset.range]; saveView(); syncControls(); renderGames();
-  }));
-  document.querySelectorAll("#recentPick button").forEach(b => b.addEventListener("click", () => {
-    const d = parseInt(b.dataset.d, 10);
-    if (b.dataset.adj === "before") recentBefore = clampWk(recentBefore + d);
-    else recentAfter = clampWk(recentAfter + d);
-    saveView(); syncControls(); renderGames();
-  }));
   syncControls();
 
   renderAuthMode();
