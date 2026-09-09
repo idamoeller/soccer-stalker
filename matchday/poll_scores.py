@@ -280,7 +280,13 @@ def find_scores(game, parsed):
             continue
         if exact:
             return ts, os_
-        fallback = (ts, os_)
+        # Generic stored names (e.g. "GA 13/14") can loosely match several rows on
+        # the same date -- one played, another still blank. A real, played score
+        # always wins over a blank; otherwise keep the first thing we found.
+        if ts is not None and os_ is not None:
+            fallback = (ts, os_)
+        elif fallback is None:
+            fallback = (ts, os_)
     return fallback if fallback else (None, None)
 
 
