@@ -93,8 +93,7 @@
   .crest.mono{background:var(--crest-team);border-color:transparent;color:var(--crest-ink);
     font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.02em;}
   .team .info{flex:1;min-width:0;}
-  .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);line-height:1.25;}
   .team .tid{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted-2);margin-top:2px;}
   .xbtn{background:none;border:0;padding:2px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--faint);flex:none;cursor:pointer;}
@@ -110,8 +109,11 @@
   .teamband.clk{cursor:pointer;}
   .bcrest{width:24px;height:24px;flex:none;border-radius:3px;background:var(--crest-team);color:var(--crest-ink);
     font-family:var(--sans);font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;object-fit:contain;}
-  .bname{flex:1;min-width:0;font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.09em;
+  .bnamewrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;}
+  .bname{min-width:0;font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.09em;
     text-transform:uppercase;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bnick{min-width:0;font-family:var(--mono);font-size:9px;letter-spacing:.02em;text-transform:none;
+    color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .brec{font-family:var(--mono);font-size:10.5px;color:var(--muted);flex:none;font-variant-numeric:tabular-nums;}
   .brec-div{display:none;}
 
@@ -625,6 +627,27 @@
     const t = teamsCache.find(x => String(x.team_id) === String(teamId));
     return t ? t.name : null;
   }
+  // Real gotSport name (club + team name), from the team's own games — used as the
+  // primary label so a user's nickname doesn't hide which team it actually is.
+  function teamRealName(teamId) {
+    const g = allGames.find(x => String(x.team_id) === String(teamId) && x.team_name);
+    return g ? withClub(teamId, g.team_name) : null;
+  }
+  // The user's custom nickname, only when it differs from the real name (else null).
+  function teamSubName(teamId) {
+    const t = teamsCache.find(x => String(x.team_id) === String(teamId));
+    const nick = t ? t.name : null;
+    if (!nick) return null;
+    const real = teamRealName(teamId);
+    return (real && nick.trim().toLowerCase() === real.trim().toLowerCase()) ? null : nick;
+  }
+  // A logo for a team: its own stored logo, else the club shield from its games.
+  function teamLogo(teamId) {
+    const t = teamsCache.find(x => String(x.team_id) === String(teamId));
+    if (t && t.logo) return t.logo;
+    const g = allGames.find(x => String(x.team_id) === String(teamId) && x.team_logo);
+    return g ? g.team_logo : null;
+  }
   // Prepend the club name unless it's already part of the team name.
   function withClub(teamId, name) {
     if (!name) return name || "";
@@ -691,7 +714,7 @@
   }
   function groupLabel(key) {
     const p = groupPrimary(key);
-    return (p && p.name) || ("Team " + key);
+    return (p && (teamRealName(p.team_id) || p.name)) || ("Team " + key);
   }
   function isLinked(key) { return groupMembers(key).length > 1; }
   // ---- follow-time "match to another team" -----------------------------------
@@ -1056,7 +1079,7 @@
     el.innerHTML = teamsCache.map(t => {
       const id = escapeHtml(t.team_id);
       if (t.team_id === editingId) {
-        return '<div class="team" data-id="' + id + '">' + crest(t.logo, t.name)
+        return '<div class="team" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
           + '<input class="editin" type="text" value="' + escapeHtml(t.name) + '" data-editinput>'
           + '<button class="mini" data-save="' + id + '">Save</button>'
           + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
@@ -1066,7 +1089,7 @@
         const myKey = groupKeyOf(t);
         const opts = teamGroups().filter(gr => gr.key !== myKey)
           .map(gr => '<option value="' + escapeHtml(gr.key) + '">' + escapeHtml(groupLabel(gr.key)) + '</option>').join("");
-        return '<div class="team" data-id="' + id + '">' + crest(t.logo, t.name)
+        return '<div class="team" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
           + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div>'
           + '<select class="editin linksel" data-linksel>'
           + '<option value="">— same team as… —</option>' + opts + '</select></div>'
@@ -1076,13 +1099,16 @@
       const key = groupKeyOf(t);
       const linked = isLinked(key);
       const isPrimary = String(t.team_id) === key;
-      const sub = linked
+      const real = teamRealName(t.team_id) || t.name;
+      const nick = teamSubName(t.team_id);
+      const status = linked
         ? (isPrimary ? 'Linked · ' + (groupMembers(key).length) + ' teams'
                      : '↳ linked to ' + escapeHtml(groupLabel(key)))
-        : 'ID ' + id;
+        : '';
+      const sub = [nick ? escapeHtml(nick) : '', status].filter(Boolean).join(' · ') || ('ID ' + id);
       return '<div class="team" data-id="' + id + '">'
-        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(t.logo, t.name)
-        + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">' + sub + '</div></div>'
+        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(teamLogo(t.team_id), real)
+        + '<div class="info"><div class="name">' + escapeHtml(real) + '</div><div class="tid">' + sub + '</div></div>'
         + '<button class="mini" data-edit="' + id + '">Rename</button>'
         + (linked
             ? '<button class="mini" data-unlink="' + escapeHtml(key) + '">Unlink</button>'
@@ -1265,7 +1291,7 @@
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
     const oppCrest = crestTile(g.opponent_logo, oppName, "opp");
     const event = g.event_name || "", field = g.field_name || "";
-    const tag = combined ? (teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "") : "";
+    const tag = combined ? (withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "") : "";
     const pre = tag ? tag + " · " : "";
     const ev = pre + (done ? event : [event, field].filter(Boolean).join(" · "));
     const dateCell = '<span class="dmob">' + escapeHtml(ledDate(g, false)) + '</span>'
@@ -1284,7 +1310,7 @@
   // are stored team-centric); the followed team is bolded so you can spot it.
   function gschedRow(g) {
     const done = isDone(g);
-    const meName = teamNick(g.team_id) || withClub(g.team_id, g.team_name) || "TBD";
+    const meName = withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "TBD";
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
     let A, B, as_, bs;                                   // A = Team A (home side), B = Team B (away side)
     if (g.is_home) {
@@ -1333,11 +1359,14 @@
   function bandHtml(key, gs) {
     const primary = groupPrimary(key);
     const pid = primary ? primary.team_id : key;
-    const label = (primary && primary.name) || withClub(pid, gs[0].team_name) || ("Team " + key);
-    const logo = (primary && primary.logo) || (gs.find(x => x.team_logo) || {}).team_logo || gs[0].team_logo;
+    const pg = gs.find(x => String(x.team_id) === String(pid)) || gs[0];   // the primary's own game
+    const label = withClub(pid, pg.team_name) || (primary && primary.name) || ("Team " + key);
+    const nick = teamSubName(pid);                                          // custom name, if it differs
+    const logo = teamLogo(pid) || (gs.find(x => x.team_logo) || {}).team_logo || pg.team_logo;
     return '<div class="teamband">' + crestTile(logo, label, "band")
-      + '<span class="bname">' + escapeHtml(label) + '</span>'
-      + '</div>';
+      + '<span class="bnamewrap"><span class="bname">' + escapeHtml(label) + '</span>'
+      + (nick ? '<span class="bnick">' + escapeHtml(nick) + '</span>' : '')
+      + '</span></div>';
   }
 
   // ---- date/range filtering ----
@@ -1375,7 +1404,7 @@
   }
 
   function gameRow(g) {
-    const mine = { name: teamNick(g.team_id) || withClub(g.team_id, g.team_name), logo: g.team_logo, score: g.team_score, mine: true };
+    const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: g.team_logo, score: g.team_score, mine: true };
     const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: g.opponent_logo, score: g.opponent_score, mine: false };
     const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
@@ -1584,6 +1613,7 @@
     const maxUpd = allGames.reduce((mx, g) => { const t = g.updated_at ? Date.parse(g.updated_at) : 0; return t > mx ? t : mx; }, 0);
     if (maxUpd) { lastSyncedAt = maxUpd; refreshSyncedAt(); }
     renderGames();
+    if (teamsCache.length) renderTeams();   // now that games are loaded: real names + club shields
   }
 
   // ---------- wire up ----------
