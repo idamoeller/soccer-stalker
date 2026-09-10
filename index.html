@@ -756,7 +756,7 @@
   // Sky Blue" vs "South Regional") so the shared coach is the deciding signal.
   function sgNorm(s) { return String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); }
   function sgCoaches(id) { return new Set(((clubMeta[String(id)] || {}).coach_names || []).map(sgNorm).filter(Boolean)); }
-  function sgPair(keyA, keyB) {
+  function sgPairCoach(keyA, keyB) {
     // compare gotSport members of each group (clubMeta is gotSport-only for now)
     const A = groupMembers(keyA).filter(m => /^\d+$/.test(String(m.team_id)));
     const B = groupMembers(keyB).filter(m => /^\d+$/.test(String(m.team_id)));
@@ -775,6 +775,52 @@
       return { keyA, keyB, why };
     }
     return null;
+  }
+  // A team's matching signal, from whichever source we have. gotSport comes from
+  // clubMeta (club/age/gender/state/coaches). ECNL has no clubMeta, so age+gender
+  // come from what we stored at follow time (the picker knows the exact age), and
+  // the club is read from the team name — no coach list is available there.
+  function teamSignal(id) {
+    id = String(id);
+    const t = teamsCache.find(x => String(x.team_id) === id);
+    const meta = clubMeta[id];
+    if (meta) {
+      const g = sgGenderCh(meta.gender), a = sgAgeNum(meta.age);
+      return (g && a) ? { gender: g, age: a, state: meta.state || "",
+        haystack: (meta.club_name || "") + " " + (teamRealName(id) || ""), coaches: meta.coach_names || [] } : null;
+    }
+    if (t && t.source === "ecnl") {
+      const g = sgGenderCh(t.gender || "f");            // all supported ECNL leagues are girls
+      const a = sgAgeNum(t.age || t.name);              // stored age (e.g. "GU13"), else parse the name
+      return (g && a) ? { gender: g, age: a, state: "", haystack: t.name || (teamRealName(id) || ""), coaches: [] } : null;
+    }
+    return null;
+  }
+  function sgInvolvesEcnl(keyA, keyB) {
+    const isE = k => groupMembers(k).some(m => String(m.team_id).startsWith("ecnl-") || m.source === "ecnl");
+    return isE(keyA) || isE(keyB);
+  }
+  // Cross-source match (a followed ECNL team vs its gotSport twin, say). No coach
+  // list on the ECNL side, so this leans on same club + age + gender. Looser than
+  // the coach rule, so it's only used when a gotSport-only coach match didn't fire
+  // AND the pair actually spans sources.
+  function sgPairClub(keyA, keyB) {
+    for (const a of groupMembers(keyA)) for (const b of groupMembers(keyB)) {
+      const sa = teamSignal(a.team_id), sb = teamSignal(b.team_id);
+      if (!sa || !sb) continue;
+      if (sa.gender !== sb.gender) continue;
+      if (sa.age !== sb.age) continue;
+      if (sa.state && sb.state && sgNorm(sa.state) !== sgNorm(sb.state)) continue;
+      if (!sgClubRelated(sa.haystack, sb.haystack)) continue;
+      const ctx = "U" + sa.age + " " + (sa.gender === "f" ? "Girls" : "Boys");
+      return { keyA, keyB, why: "Same club · " + ctx + " · likely the same team across leagues" };
+    }
+    return null;
+  }
+  // Prefer the strict gotSport coach match; fall back to the looser club match
+  // only when the pair spans sources (e.g. ECNL <-> gotSport).
+  function sgPair(keyA, keyB) {
+    return sgPairCoach(keyA, keyB) || (sgInvolvesEcnl(keyA, keyB) ? sgPairClub(keyA, keyB) : null);
   }
   function sgPairId(a, b) { return [String(a), String(b)].sort().join("|"); }
   function sgDismissed() {
@@ -1667,19 +1713,19 @@
     try {
       const nick = $("ecNick").value.trim() || t.name;
       const gkey = pendingMatchKey();
+      // all supported ECNL leagues (org 9/13/21) are Girls → gender 'f'; age from the picked division label.
+      // Store both so the persistent duplicate suggester can match this team across leagues later.
+      const ageLabel = ($("ecAge").selectedOptions[0] || {}).textContent || $("ecAge").value;
       const { error } = await sb.from("followed_teams").insert({
         team_id: "ecnl-" + t.teamId, name: nick, user_id: user.id, source: "ecnl", group_id: gkey,
+        age: ageLabel, gender: "f",
         ecnl_org: ecState.org, ecnl_conf: Number(ecState.conf), ecnl_club: Number(t.clubId), ecnl_team: Number(t.teamId)
       });
       if (error) throw error;
       ecMsg("Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games appear on the next sync."), false);
       $("ecNick").value = ""; resetMatch();
       loadTeams(); loadClubs().then(loadGames);
-      if (!gkey) {
-        // all supported ECNL leagues (org 9/13/21) are Girls → gender 'f'; age from the picked division label
-        const ageLabel = ($("ecAge").selectedOptions[0] || {}).textContent || $("ecAge").value;
-        maybeFollowNudge({ newId: "ecnl-" + t.teamId, gender: "f", age: sgAgeNum(ageLabel), haystack: t.name || "", state: "" });
-      }
+      if (!gkey) maybeFollowNudge({ newId: "ecnl-" + t.teamId, gender: "f", age: sgAgeNum(ageLabel), haystack: t.name || "", state: "" });
     } catch (e) { ecMsg(friendlyError(e), true); $("ecAdd").disabled = false; }
   }
   document.querySelectorAll(".modetab").forEach(b => b.addEventListener("click", () => {
