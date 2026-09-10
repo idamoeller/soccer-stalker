@@ -224,6 +224,18 @@ def upsert_games(rows):
         r.raise_for_status()
 
 
+def _clean_coaches(names):
+    """De-dupe + trim coach_names; always return a list (never None) so an
+    enriched-but-coachless team ([]) is distinguishable from a pre-migration
+    row that was never fetched under the new schema (null)."""
+    seen, out = set(), []
+    for n in (names or []):
+        n = (n or "").strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower()); out.append(n)
+    return out
+
+
 def fetch_club(team_id):
     try:
         r = requests.get(f"{GOTSPORT}/api/v1/team_ranking_data/team_details",
@@ -231,7 +243,11 @@ def fetch_club(team_id):
         r.raise_for_status()
         d = r.json()
         return {"team_id": str(team_id), "club_name": d.get("club_name"),
-                "team_name": d.get("name"), "updated_at": now_iso()}
+                "team_name": d.get("name"),
+                "age": d.get("display_age_group"), "gender": d.get("display_gender"),
+                "state": d.get("team_association"),
+                "coach_names": _clean_coaches(d.get("coach_names")),
+                "updated_at": now_iso()}
     except Exception as e:
         print(f"    ! club fetch {team_id} failed: {e}")
         return None
@@ -247,9 +263,12 @@ def sync_clubs(rows):
     have = set()
     try:
         resp = requests.get(f"{SUPABASE_URL}/rest/v1/clubs", headers=SB_HEADERS,
-                            params={"select": "team_id"}, timeout=30)
+                            params={"select": "team_id,coach_names"}, timeout=30)
         resp.raise_for_status()
-        have = {row["team_id"] for row in resp.json()}
+        # A row counts as cached only once it carries the enriched fields
+        # (coach_names is [] for a coachless team, null only on pre-migration rows),
+        # so older rows get re-fetched once to backfill age/gender/state/coaches.
+        have = {row["team_id"] for row in resp.json() if row.get("coach_names") is not None}
     except Exception as e:
         print(f"  ! clubs read failed (table may not exist yet): {e}")
         return

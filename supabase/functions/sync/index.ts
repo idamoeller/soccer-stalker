@@ -148,11 +148,23 @@ async function fetchMatches(teamId: string): Promise<any[]> {
   return [...merged.values()];
 }
 
+function cleanCoaches(names: any): string[] {
+  const seen = new Set<string>(), out: string[] = [];
+  for (const raw of (Array.isArray(names) ? names : [])) {
+    const n = String(raw ?? "").trim();
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+  }
+  return out;
+}
+
 async function fetchClub(teamId: string): Promise<any | null> {
   try {
     const r = await fetch(`${GOTSPORT}/api/v1/team_ranking_data/team_details?team_id=${teamId}`, { headers: GS_HEADERS });
     const d = await r.json();
-    return { team_id: String(teamId), club_name: d.club_name ?? null, team_name: d.name ?? null, updated_at: new Date().toISOString() };
+    return { team_id: String(teamId), club_name: d.club_name ?? null, team_name: d.name ?? null,
+             age: d.display_age_group ?? null, gender: d.display_gender ?? null,
+             state: d.team_association ?? null, coach_names: cleanCoaches(d.coach_names),
+             updated_at: new Date().toISOString() };
   } catch (_e) { return null; }
 }
 
@@ -205,8 +217,9 @@ Deno.serve(async (req: Request) => {
       if (r.team_id && /^\d+$/.test(String(r.team_id))) refIds.add(String(r.team_id));
       if (r.opponent_id && /^\d+$/.test(String(r.opponent_id))) refIds.add(String(r.opponent_id));
     }
-    const { data: known } = await admin.from("clubs").select("team_id");
-    const have = new Set((known ?? []).map((c: any) => String(c.team_id)));
+    const { data: known } = await admin.from("clubs").select("team_id,coach_names");
+    // Re-fetch pre-migration rows (coach_names null) once to backfill the new fields.
+    const have = new Set((known ?? []).filter((c: any) => c.coach_names != null).map((c: any) => String(c.team_id)));
     const missing = [...refIds].filter((i) => !have.has(i));
     const clubRows: any[] = [];
     for (const i of missing) { const c = await fetchClub(i); if (c) clubRows.push(c); }
