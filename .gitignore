@@ -7,3 +7,4 @@ design-reference.html
 matchday/.venv/
 matchday/cookies.json
 matchday/*.log
+matchday/.group_harvest

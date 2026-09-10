@@ -36,6 +36,7 @@ load_dotenv(os.path.join(HERE, ".env"))
 
 GOTSPORT = "https://system.gotsport.com"
 COOKIE_FILE = os.path.join(HERE, "cookies.json")
+GROUP_HARVEST_STATE = os.path.join(HERE, ".group_harvest")   # last date we mapped division->group
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -347,12 +348,112 @@ def probe(event_id, age=None, gender=None):
 
 
 # --------------------------------------------------------------------------- #
+# Division -> schedule "group" id harvest (for deep-linking a game to its exact
+# division page). The group id lives only on the captcha-gated event page, so we
+# read it here (real cookie) and cache it in `event_groups` for the web app.
+# --------------------------------------------------------------------------- #
+def parse_group_map(html):
+    """(age:int, conference-label:lower) -> group_id, parsed off an event's base
+    schedule page, which nests age panels -> conference rows -> Schedule/Results
+    links carrying ?group=<id>."""
+    soup = BeautifulSoup(html, "html.parser")
+    out = {}
+    for a in soup.find_all("a", href=True):
+        if "group=" not in a["href"] or "schedule" not in a.get_text().lower():
+            continue                                          # the Schedule link (skip its Results twin)
+        m = re.search(r"group=(\d+)", a["href"])
+        if not m:
+            continue
+        gid = m.group(1)
+        agenode = a.find_parent(class_="age-group")
+        age = None
+        if agenode:
+            am = re.search(r"group-u(\d+)", " ".join(agenode.get("class") or []))
+            age = int(am.group(1)) if am else None
+        row = a.find_parent(class_="row")
+        label = ""
+        if row:
+            label = re.sub(r"\b(Schedule|Results)\b", "", re.sub(r"\s+", " ", row.get_text(" ")).strip()).strip()
+        if age and label:
+            out[(age, label.lower())] = gid
+    return out
+
+
+def _conf_of(division_name):
+    """'U13G New England' -> 'New England' (strip the leading age/gender token)."""
+    return re.sub(r"^\s*U?\s*\d{1,2}\s*[GBM]?\b\s*", "", division_name or "", flags=re.I).strip()
+
+
+def _tracked_divisions():
+    """event_id -> {division_name, ...} across all stored gotSport games."""
+    out = {}
+    for g in sb_get("games", {"select": "event_id,division_name", "source": "eq.gotsport"}, required=False):
+        ev = str(g.get("event_id") or "").strip()
+        dn = (g.get("division_name") or "").strip()
+        if ev and dn:
+            out.setdefault(ev, set()).add(dn)
+    return out
+
+
+def harvest_group_map(cookies):
+    """Map each gotSport division_name -> its exact schedule `group` id and upsert
+    into event_groups. Best-effort; returns the number of rows written."""
+    by_event = _tracked_divisions()
+    if not by_event:
+        print("  group harvest: no gotSport games yet, nothing to map.")
+        return 0
+    rows = []
+    for ev, divisions in by_event.items():
+        status, html = fetch_schedule(schedule_url(ev, None, None), cookies)
+        if status == "blocked":
+            print("  group harvest: cookie blocked -> run refresh_cookie.py; skipping.")
+            return 0
+        gm = parse_group_map(html)
+        if not gm:
+            print(f"  group harvest: event {ev} -> no groups on page (skipped)")
+            continue
+        matched = 0
+        for dn in divisions:
+            am = re.search(r"(\d{1,2})", dn)
+            gid = gm.get((int(am.group(1)), _conf_of(dn).lower())) if am else None
+            if gid:
+                rows.append({"event_id": ev, "division_name": dn, "group_id": gid, "updated_at": now_iso()})
+                matched += 1
+        print(f"  group harvest: event {ev} -> {matched}/{len(divisions)} divisions mapped ({len(gm)} groups on page)")
+        time.sleep(0.4)
+    for k in range(0, len(rows), 200):
+        r = requests.post(f"{SUPABASE_URL}/rest/v1/event_groups",
+                          headers={**sb_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+                          params={"on_conflict": "event_id,division_name"}, json=rows[k:k + 200], timeout=60)
+        if not r.ok:
+            print(f"  ! event_groups upsert failed {r.status_code}: {r.text[:200]}")
+    print(f"  group harvest: upserted {len(rows)} (event,division)->group rows.")
+    return len(rows)
+
+
+def maybe_harvest_group_map(cookies):
+    """Run the harvest at most once per local day (state file); never fatal."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        if os.path.exists(GROUP_HARVEST_STATE) and open(GROUP_HARVEST_STATE).read().strip() == today:
+            return
+    except Exception:
+        pass
+    try:
+        harvest_group_map(cookies)
+        open(GROUP_HARVEST_STATE, "w").write(today)
+    except Exception as e:
+        print(f"  group harvest skipped: {e}")
+
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 def run(force=False):
     if not SUPABASE_URL or not SUPABASE_KEY:
         sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
     cookies = load_cookies()
+    maybe_harvest_group_map(cookies)   # once/day: refresh division->group deep-link map
 
     games = all_today_games() if force else window_games()
     if not games:
@@ -401,12 +502,19 @@ def main():
     ap.add_argument("--force", action="store_true", help="check all of today's games, ignore the window")
     ap.add_argument("--probe", nargs="+", metavar="EVENT [AGE] [GENDER]",
                     help="no Supabase: fetch+parse one event schedule and print its games")
+    ap.add_argument("--harvest-groups", action="store_true",
+                    help="map each division to its schedule group id (writes event_groups) and exit")
     args = ap.parse_args()
 
     if args.probe:
         probe(args.probe[0],
               args.probe[1] if len(args.probe) > 1 else None,
               args.probe[2] if len(args.probe) > 2 else None)
+        return
+    if args.harvest_groups:
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
+        harvest_group_map(load_cookies())
         return
     run(force=args.force)
 
