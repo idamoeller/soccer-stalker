@@ -90,6 +90,8 @@
   .team{display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid var(--rule);}
   .crest{width:34px;height:34px;flex:none;border-radius:2px;background:var(--white);border:1px solid var(--rule);
     object-fit:contain;display:flex;align-items:center;justify-content:center;font-size:17px;}
+  .crest.mono{background:var(--crest-team);border-color:transparent;color:var(--crest-ink);
+    font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.02em;}
   .team .info{flex:1;min-width:0;}
   .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -571,6 +573,7 @@
   let sortable = null;                                       // SortableJS instance for the team list
   let clubsMap = {};                                         // team_id -> club_name
   let clubMeta = {};                                         // team_id -> {club_name,age,gender,state,coach_names[]}
+  let groupMap = {};                                         // "event_id|division_name" -> schedule group id
 
   // ---- games view state (persisted per device) ----
   let allGames = [];
@@ -648,6 +651,17 @@
     }
     clubsMap = map; clubMeta = meta;
     renderSuggestions();
+  }
+  // event_groups maps a game's (event, division) to its exact schedule "group"
+  // id, so a game row can deep-link to its specific division page. Harvested by
+  // the Matchday scraper (the id lives only on the captcha-gated event page).
+  async function loadGroupMap() {
+    try {
+      const { data } = await sb.from("event_groups").select("event_id,division_name,group_id");
+      const map = {};
+      for (const r of (data || [])) if (r.group_id) map[String(r.event_id) + "|" + (r.division_name || "")] = String(r.group_id);
+      groupMap = map;
+    } catch (e) { groupMap = {}; }   // table may not exist yet — degrade to age+gender links
   }
 
   // ---- team grouping (linked teams shown as one) ----------------------------
@@ -894,7 +908,7 @@
     $("who").textContent = u.email;
     showView("home");
     loadTeams();
-    loadClubs().then(loadGames);
+    Promise.all([loadClubs(), loadGroupMap()]).then(loadGames);
     loadWatches();
   }
 
@@ -949,9 +963,10 @@
     }
   }
 
-  function crest(logo) {
-    if (logo) return '<img class="crest" src="' + logo + '" alt="" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'crest\',textContent:\'⚽\'}))">';
-    return '<div class="crest">⚽</div>';
+  function crest(logo, name) {
+    const mono = monogram(name);   // 2-letter fallback, matching the ledger crests
+    if (logo) return '<img class="crest" src="' + escapeHtml(logo) + '" alt="" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'crest mono\',textContent:\'' + mono + '\'}))">';
+    return '<div class="crest mono">' + escapeHtml(mono) + '</div>';
   }
 
   async function loadTeams() {
@@ -1041,7 +1056,7 @@
     el.innerHTML = teamsCache.map(t => {
       const id = escapeHtml(t.team_id);
       if (t.team_id === editingId) {
-        return '<div class="team" data-id="' + id + '">' + crest(t.logo)
+        return '<div class="team" data-id="' + id + '">' + crest(t.logo, t.name)
           + '<input class="editin" type="text" value="' + escapeHtml(t.name) + '" data-editinput>'
           + '<button class="mini" data-save="' + id + '">Save</button>'
           + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
@@ -1051,7 +1066,7 @@
         const myKey = groupKeyOf(t);
         const opts = teamGroups().filter(gr => gr.key !== myKey)
           .map(gr => '<option value="' + escapeHtml(gr.key) + '">' + escapeHtml(groupLabel(gr.key)) + '</option>').join("");
-        return '<div class="team" data-id="' + id + '">' + crest(t.logo)
+        return '<div class="team" data-id="' + id + '">' + crest(t.logo, t.name)
           + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div>'
           + '<select class="editin linksel" data-linksel>'
           + '<option value="">— same team as… —</option>' + opts + '</select></div>'
@@ -1066,7 +1081,7 @@
                      : '↳ linked to ' + escapeHtml(groupLabel(key)))
         : 'ID ' + id;
       return '<div class="team" data-id="' + id + '">'
-        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(t.logo)
+        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(t.logo, t.name)
         + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div><div class="tid">' + sub + '</div></div>'
         + '<button class="mini" data-edit="' + id + '">Rename</button>'
         + (linked
@@ -1182,6 +1197,8 @@
     if (id.startsWith("ecnl-")) return "https://www.theecnl.com/";   // TGS has no shareable per-team URL
     if (g.event_id) {
       const base = "https://system.gotsport.com/org_event/events/" + g.event_id + "/schedules";
+      const grp = groupMap[String(g.event_id) + "|" + (g.division_name || "")];
+      if (grp) return base + "?group=" + encodeURIComponent(grp);   // exact division page
       const f = eventAgeGender(g.division_name);
       return f ? base + "?age=" + f.age + "&gender=" + f.gender : base;
     }
@@ -1190,7 +1207,7 @@
   function sideLine(side, rcls) {
     const sc = side.score == null ? "" : side.score;
     return '<div class="tline' + (side.mine ? " mine" : "") + '">'
-      + '<span class="tside">' + crest(side.logo)
+      + '<span class="tside">' + crest(side.logo, side.name)
       + '<span class="tn">' + escapeHtml(side.name || "TBD") + '</span></span>'
       + '<span class="tsc ' + (side.mine ? rcls : "") + '">' + sc + '</span></div>';
   }
@@ -1329,10 +1346,15 @@
     if (g.match_date) { const d = new Date(g.match_date + "T12:00:00"); return isNaN(d) ? null : d; }
     return null;
   }
-  // TBD-bracket placeholders list a team against itself — hide them.
+  // TBD-bracket placeholders list a team against itself — hide them. Match on the
+  // opponent *id* (reliable). Only fall back to name-equality when there's no
+  // distinct opponent id: some leagues give every team the same club-less name
+  // (e.g. Girls Academy "Aspire 13/14"), so a shared name with a real, different
+  // opponent_id is a genuine game, not a placeholder.
   function isPlaceholder(g) {
-    return (g.opponent_id != null && String(g.opponent_id) === String(g.team_id))
-        || (!!g.opponent_name && !!g.team_name && g.opponent_name === g.team_name);
+    if (g.opponent_id != null && String(g.opponent_id) === String(g.team_id)) return true;
+    if (g.opponent_id == null && !!g.opponent_name && !!g.team_name && g.opponent_name === g.team_name) return true;
+    return false;
   }
   // A game is "past" once it has a final score, or its date is before today.
   // Undated, unplayed games (e.g. TBD bracket slots) count as upcoming.
@@ -1712,7 +1734,7 @@
       const following = teamsCache.some(x => String(x.team_id) === String(t.teamId));
       const meta = [t.clubName, t.state].filter(Boolean).join(" · ");
       return '<button class="gsitem" data-i="' + i + '"' + (following ? ' disabled' : '') + '>'
-        + crest(t.logo)
+        + crest(t.logo, t.name)
         + '<div class="info"><div class="gn">' + escapeHtml(t.name) + '</div>'
         + (meta ? '<div class="gm">' + escapeHtml(meta) + '</div>' : '') + '</div>'
         + '<span class="plus">' + (following ? 'following' : '+ follow') + '</span></button>';
