@@ -1356,6 +1356,13 @@
     if (g.opponent_id == null && !!g.opponent_name && !!g.team_name && g.opponent_name === g.team_name) return true;
     return false;
   }
+  // gotSport parks undated/cancelled games on a far-future sentinel date
+  // (e.g. 2035-01-01, which renders as "Mon, Jan 1"). Treat anything implausibly
+  // far out as a phantom and hide it.
+  function isPhantom(g) {
+    const d = gameDate(g);
+    return !!d && d.getFullYear() >= 2030;
+  }
   // A game is "past" once it has a final score, or its date is before today.
   // Undated, unplayed games (e.g. TBD bracket slots) count as upcoming.
   function isPast(g) {
@@ -1388,7 +1395,7 @@
     const past = timeframe === "past";
     const cutoff = Date.now() - pastWeeks * 7 * 86400000;    // "Past" lookback horizon
     const inWindow = g => { if (!past) return true; const d = gameDate(g); return !d || d.getTime() >= cutoff; };
-    const list = allGames.filter(g => !isPlaceholder(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past && inWindow(g)).sort((a, b) => {
+    const list = allGames.filter(g => !isPlaceholder(g) && !isPhantom(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past && inWindow(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return past ? db - da : da - db;          // past: newest first · upcoming: soonest first

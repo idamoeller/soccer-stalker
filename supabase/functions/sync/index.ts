@@ -194,6 +194,8 @@ Deno.serve(async (req: Request) => {
       const row = toRow(tid, m);
       // skip TBD-bracket placeholders (team listed against itself)
       if (row.opponent_id && row.opponent_id === row.team_id) continue;
+      // skip phantom games parked on a far-future sentinel date (e.g. 2035-01-01)
+      if (parseInt(String(row.match_date || "").slice(0, 4), 10) >= 2030) continue;
       rows.set(`${row.match_id}:${row.team_id}`, row);
     }
   }

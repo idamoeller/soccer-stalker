@@ -372,6 +372,10 @@ def build_rows(team_ids):
                 # skip TBD-bracket placeholders (team listed against itself)
                 if row.get("opponent_id") and str(row["opponent_id"]) == str(row["team_id"]):
                     continue
+                # skip phantom games parked on a far-future sentinel date (e.g. 2035-01-01)
+                md = str(row.get("match_date") or "")
+                if md[:4].isdigit() and int(md[:4]) >= 2030:
+                    continue
                 all_rows[(row["match_id"], row["team_id"])] = row
             except Exception as e:
                 print(f"    ! row build failed for match {m.get('id')}: {e}")
