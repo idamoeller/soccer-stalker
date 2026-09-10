@@ -260,6 +260,17 @@
   .matchopt{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--ink-2);cursor:pointer;}
   .matchopt input{width:15px;height:15px;flex:none;accent-color:var(--accent);cursor:pointer;}
   #matchSelWrap{margin-top:12px;}
+  .suggests{display:flex;flex-direction:column;gap:10px;margin-bottom:20px;}
+  .sugg{border:1px solid var(--accent-soft);background:var(--band);border-radius:3px;padding:12px 14px;}
+  .sugg .sg-hd{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;}
+  .sugg .sg-teams{font-size:15px;color:var(--ink);letter-spacing:-.005em;}
+  .sugg .sg-teams b{font-weight:600;}
+  .sugg .sg-why{font-size:12px;color:var(--muted);margin-top:3px;}
+  .sugg .sg-act{display:flex;align-items:center;gap:14px;margin-top:11px;}
+  .sugg .sg-link{background:var(--accent);color:var(--white);border:0;border-radius:3px;padding:6px 15px;font-size:12px;font-weight:500;cursor:pointer;}
+  .sugg .sg-link:hover{background:#245a3a;}
+  .sugg .sg-no{background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:6px 2px;}
+  .sugg .sg-no:hover{color:var(--loss);}
   /* tournament watcher */
   .twnote{font-size:12.5px;color:var(--muted-2);line-height:1.5;margin-top:12px;}
   .twcard{margin-top:18px;padding-top:16px;border-top:1px solid var(--rule);}
@@ -516,6 +527,7 @@
 
   <section class="view" data-view="teams" hidden style="margin-top:34px;">
     <div class="sechead">Teams you follow</div>
+    <div id="linkSuggest"></div>
     <div id="teams"><div class="empty">Loading…</div></div>
   </section>
 
@@ -557,6 +569,7 @@
   let linkingId = null;                                      // team currently choosing who to link to
   let sortable = null;                                       // SortableJS instance for the team list
   let clubsMap = {};                                         // team_id -> club_name
+  let clubMeta = {};                                         // team_id -> {club_name,age,gender,state,coach_names[]}
 
   // ---- games view state (persisted per device) ----
   let allGames = [];
@@ -616,12 +629,24 @@
     return name;
   }
   async function loadClubs() {
-    try {
-      const { data } = await sb.from("clubs").select("team_id,club_name");
-      const map = {};
-      for (const c of (data || [])) if (c.club_name) map[String(c.team_id)] = c.club_name;
-      clubsMap = map;
-    } catch (e) { clubsMap = {}; }   // table may not exist yet — degrade gracefully
+    let data = null;
+    try {   // try the enriched columns; fall back if they don't exist yet
+      const r = await sb.from("clubs").select("team_id,club_name,age,gender,state,coach_names");
+      if (r.error) throw r.error;
+      data = r.data;
+    } catch (e) {
+      try { data = (await sb.from("clubs").select("team_id,club_name")).data; }
+      catch (e2) { data = null; }   // table may not exist yet — degrade gracefully
+    }
+    const map = {}, meta = {};
+    for (const c of (data || [])) {
+      const id = String(c.team_id);
+      if (c.club_name) map[id] = c.club_name;
+      meta[id] = { club_name: c.club_name || "", age: c.age || "", gender: c.gender || "",
+                   state: c.state || "", coach_names: Array.isArray(c.coach_names) ? c.coach_names : [] };
+    }
+    clubsMap = map; clubMeta = meta;
+    renderSuggestions();
   }
 
   // ---- team grouping (linked teams shown as one) ----------------------------
@@ -685,6 +710,69 @@
       else t++;
     }
     return { w, l, t };
+  }
+
+  // ---- suggest likely-duplicate teams (link candidates) ----------------------
+  // Two follows are probably the same real team when they share a coach AND agree
+  // on age + gender (+ state when both know it). Names alone miss it (e.g. "NAL
+  // Sky Blue" vs "South Regional") so the shared coach is the deciding signal.
+  function sgNorm(s) { return String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); }
+  function sgCoaches(id) { return new Set(((clubMeta[String(id)] || {}).coach_names || []).map(sgNorm).filter(Boolean)); }
+  function sgPair(keyA, keyB) {
+    // compare gotSport members of each group (clubMeta is gotSport-only for now)
+    const A = groupMembers(keyA).filter(m => /^\d+$/.test(String(m.team_id)));
+    const B = groupMembers(keyB).filter(m => /^\d+$/.test(String(m.team_id)));
+    for (const a of A) for (const b of B) {
+      const ma = clubMeta[String(a.team_id)], mb = clubMeta[String(b.team_id)];
+      if (!ma || !mb) continue;
+      if (!ma.gender || sgNorm(ma.gender) !== sgNorm(mb.gender)) continue;          // same gender
+      if (!ma.age || sgNorm(ma.age) !== sgNorm(mb.age)) continue;                   // same age
+      if (ma.state && mb.state && sgNorm(ma.state) !== sgNorm(mb.state)) continue;  // state agrees when known
+      const bc = sgCoaches(b.team_id);
+      const shared = (ma.coach_names || []).find(c => bc.has(sgNorm(c)));           // a shared coach
+      if (!shared) continue;
+      const club = ma.club_name && mb.club_name && sgNorm(ma.club_name) === sgNorm(mb.club_name);
+      const why = (club ? "Same club · " : "") + ma.age + " " + ma.gender
+                + (ma.state ? " · " + ma.state : "") + " · shared coach " + shared;
+      return { keyA, keyB, why };
+    }
+    return null;
+  }
+  function sgPairId(a, b) { return [String(a), String(b)].sort().join("|"); }
+  function sgDismissed() {
+    try { return new Set(JSON.parse(localStorage.getItem("ss:nolink") || "[]")); }
+    catch (e) { return new Set(); }
+  }
+  function sgDismiss(a, b) {
+    const s = sgDismissed(); s.add(sgPairId(a, b));
+    try { localStorage.setItem("ss:nolink", JSON.stringify([...s])); } catch (e) {}
+    renderSuggestions();
+  }
+  function suggestLinks() {
+    const groups = teamGroups(), skip = sgDismissed(), out = [];
+    for (let i = 0; i < groups.length; i++)
+      for (let j = i + 1; j < groups.length; j++) {
+        if (skip.has(sgPairId(groups[i].key, groups[j].key))) continue;
+        const s = sgPair(groups[i].key, groups[j].key);
+        if (s) out.push(s);
+      }
+    return out;
+  }
+  function renderSuggestions() {
+    const el = $("linkSuggest"); if (!el) return;
+    const sugg = suggestLinks();
+    if (!sugg.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="suggests">' + sugg.map(s =>
+      '<div class="sugg">'
+      + '<div class="sg-hd">Possible duplicate</div>'
+      + '<div class="sg-teams"><b>' + escapeHtml(groupLabel(s.keyA)) + '</b> &amp; <b>' + escapeHtml(groupLabel(s.keyB)) + '</b></div>'
+      + '<div class="sg-why">' + escapeHtml(s.why) + '</div>'
+      + '<div class="sg-act">'
+      + '<button class="sg-link" data-a="' + escapeHtml(s.keyA) + '" data-b="' + escapeHtml(s.keyB) + '">Link them</button>'
+      + '<button class="sg-no" data-a="' + escapeHtml(s.keyA) + '" data-b="' + escapeHtml(s.keyB) + '">Not the same</button>'
+      + '</div></div>').join("") + '</div>';
+    el.querySelectorAll(".sg-link").forEach(b => b.addEventListener("click", () => linkTeams(b.dataset.a, b.dataset.b)));
+    el.querySelectorAll(".sg-no").forEach(b => b.addEventListener("click", () => sgDismiss(b.dataset.a, b.dataset.b)));
   }
 
   // ---------- auth UI ----------
@@ -814,6 +902,7 @@
     renderTeams();
     renderTeamFilter();
     renderMatchOptions();
+    renderSuggestions();
   }
 
   async function saveTeamOrder() {
