@@ -486,6 +486,7 @@
     </div>
 
     <div id="addMsg" class="msg"></div>
+    <div id="followNudge"></div>
   </section>
 
   <section class="view" data-view="home">
@@ -773,6 +774,69 @@
       + '</div></div>').join("") + '</div>';
     el.querySelectorAll(".sg-link").forEach(b => b.addEventListener("click", () => linkTeams(b.dataset.a, b.dataset.b)));
     el.querySelectorAll(".sg-no").forEach(b => b.addEventListener("click", () => sgDismiss(b.dataset.a, b.dataset.b)));
+  }
+
+  // ---- follow-time duplicate nudge (Flavor 1) --------------------------------
+  // When you add a team, check it against teams you already follow and, if it
+  // looks like the same real team, offer to link right away. Looser than the
+  // persistent card above: no coach list is available at follow time (gotSport
+  // blocks the browser, ECNL has none), so it matches on club + age + gender and
+  // lets you decide on the spot. Works cross-source (e.g. a new ECNL team vs a
+  // gotSport team you already follow), since the existing side's signals are
+  // cached in clubMeta.
+  const SG_STOP = new Set("fc sc cf soccer club futbol academy ecnl rl ga nal dpl npl league girls boys girl boy the of".split(" "));
+  function sgAgeNum(s) { const m = String(s || "").match(/(\d{1,2})\b/); return m ? +m[1] : null; }
+  function sgGenderCh(s) {
+    s = String(s || "").trim().toLowerCase();
+    if (/^f|^g|girl|female|women/.test(s)) return "f";
+    if (/^m|^b|boy|male|men/.test(s)) return "m";
+    return "";
+  }
+  function sgClubToks(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
+      .filter(w => w && !SG_STOP.has(w) && !/^u?\d{1,2}$/.test(w) && !/^g?u?\d{2,4}$/.test(w) && !/^\d{4}$/.test(w));
+  }
+  function sgClubRelated(existingClub, candHaystack) {
+    const a = new Set(sgClubToks(existingClub)), b = sgClubToks(candHaystack);
+    return a.size > 0 && b.some(w => a.has(w));
+  }
+  function followTimeMatch(cand) {   // -> matching existing group key, or null
+    if (!cand.gender || !cand.age) return null;
+    for (const gr of teamGroups()) {
+      if (String(gr.key) === String(cand.key)) continue;
+      for (const m of groupMembers(gr.key)) {
+        const meta = clubMeta[String(m.team_id)];
+        if (!meta) continue;                                         // only cached teams carry signals
+        if (sgGenderCh(meta.gender) !== cand.gender) continue;
+        if (sgAgeNum(meta.age) !== cand.age) continue;
+        if (meta.state && cand.state && sgNorm(meta.state) !== sgNorm(cand.state)) continue;
+        if (!sgClubRelated(meta.club_name, cand.haystack)) continue;
+        return gr.key;
+      }
+    }
+    return null;
+  }
+  function renderFollowNudge(x) {
+    const el = $("followNudge"); if (!el) return;
+    if (!x) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="suggests"><div class="sugg">'
+      + '<div class="sg-hd">Possible duplicate</div>'
+      + '<div class="sg-teams">Looks like <b>' + escapeHtml(groupLabel(x.matchKey)) + '</b>, which you already follow.</div>'
+      + '<div class="sg-why">Same club, age &amp; gender — link them so they show as one team?</div>'
+      + '<div class="sg-act">'
+      + '<button class="sg-link">Link them</button>'
+      + '<button class="sg-no">No, keep separate</button>'
+      + '</div></div></div>';
+    el.querySelector(".sg-link").addEventListener("click", async () => {
+      await linkTeams(x.newId, x.matchKey);
+      renderFollowNudge(null);
+    });
+    el.querySelector(".sg-no").addEventListener("click", () => renderFollowNudge(null));
+  }
+  function maybeFollowNudge(cand) {
+    cand.key = cand.key || cand.newId;
+    const matchKey = followTimeMatch(cand);
+    renderFollowNudge(matchKey ? { newId: cand.newId, matchKey } : null);
   }
 
   // ---------- auth UI ----------
@@ -1540,7 +1604,7 @@
   async function followEcnl() {
     const t = ecState.teams.find(x => x.teamId === $("ecTeam").value);
     if (!t) return;
-    $("ecAdd").disabled = true;
+    $("ecAdd").disabled = true; renderFollowNudge(null);
     try {
       const nick = $("ecNick").value.trim() || t.name;
       const gkey = pendingMatchKey();
@@ -1552,6 +1616,11 @@
       ecMsg("Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games appear on the next sync."), false);
       $("ecNick").value = ""; resetMatch();
       loadTeams(); loadClubs().then(loadGames);
+      if (!gkey) {
+        // all supported ECNL leagues (org 9/13/21) are Girls → gender 'f'; age from the picked division label
+        const ageLabel = ($("ecAge").selectedOptions[0] || {}).textContent || $("ecAge").value;
+        maybeFollowNudge({ newId: "ecnl-" + t.teamId, gender: "f", age: sgAgeNum(ageLabel), haystack: t.name || "", state: "" });
+      }
     } catch (e) { ecMsg(friendlyError(e), true); $("ecAdd").disabled = false; }
   }
   document.querySelectorAll(".modetab").forEach(b => b.addEventListener("click", () => {
@@ -1604,7 +1673,7 @@
   })();
   let gsResults = [];
   async function gsSearch() {
-    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = "";
+    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = ""; renderFollowNudge(null);
     const gender = $("gsGender").value, age = $("gsAge").value, q = $("gsQuery").value.trim();
     if (!gender || !age) { msg.className = "msg err"; msg.textContent = "Pick a gender and age group first."; return; }
     if (!q) { msg.className = "msg err"; msg.textContent = "Type a team or club name to search."; return; }
@@ -1655,7 +1724,7 @@
   }
   async function followGotsport(t) {
     if (!t) return;
-    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = "";
+    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = ""; renderFollowNudge(null);
     if (teamsCache.some(x => String(x.team_id) === String(t.teamId))) {
       msg.className = "msg err"; msg.textContent = "You already follow that team."; return;
     }
@@ -1668,6 +1737,13 @@
       msg.textContent = "Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games fill in on the next sync.");
       resetMatch();
       await loadTeams(); renderGsResults(); loadGames();
+      if (!gkey) maybeFollowNudge({
+        newId: String(t.teamId),
+        gender: sgGenderCh(t.gender || $("gsGender").value),
+        age: sgAgeNum(t.age != null ? t.age : $("gsAge").value),
+        haystack: (t.clubName || "") + " " + (t.name || ""),
+        state: t.state || ""
+      });
     } catch (e) { msg.className = "msg err"; msg.textContent = friendlyError(e); }
   }
   $("gsSearch").addEventListener("click", gsSearch);
