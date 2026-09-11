@@ -148,8 +148,7 @@
   .gsched .g-team{min-width:140px;max-width:180px;}
   .gteam{display:flex;align-items:center;gap:8px;}
   .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;}
-  .gme .gtname{color:var(--ink);}
-  .gwin .gtname{color:var(--ink);font-weight:700;}
+  .gme .gtname{font-weight:600;}
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:500;
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:8px;padding-right:8px;}
   .gsched .g-event{max-width:160px;font-size:12px;color:var(--ink-2);line-height:1.25;}
@@ -187,9 +186,7 @@
   .tside{display:flex;align-items:center;gap:9px;min-width:0;}
   .scard .crest{width:22px;height:22px;font-size:12px;}
   .tn{font-size:14px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .tline.mine .tn{color:var(--ink);}
-  .tline.winner .tn{color:var(--ink);font-weight:700;}
-  .tline.winner .tsc{font-weight:700;}
+  .tline.mine .tn{color:var(--ink);font-weight:600;}
   .tsc{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--muted-2);
     font-variant-numeric:tabular-nums;flex:none;min-width:14px;text-align:right;}
   .tsc.win{color:var(--win);} .tsc.loss{color:var(--loss);} .tsc.draw{color:var(--draw);}
@@ -1322,13 +1319,12 @@
     }
     return "https://rankings.gotsport.com/teams/" + encodeURIComponent(id);
   }
-  function sideLine(side) {
+  function sideLine(side, rcls) {
     const sc = side.score == null ? "" : side.score;
-    const sccls = side.won ? "win" : side.draw ? "draw" : "";   // winner green, draw amber, else muted
-    return '<div class="tline' + (side.won ? " winner" : "") + (side.mine ? " mine" : "") + '">'
+    return '<div class="tline' + (side.mine ? " mine" : "") + '">'
       + '<span class="tside">' + crest(side.logo, side.name)
       + '<span class="tn">' + escapeHtml(side.name || "TBD") + '</span></span>'
-      + '<span class="tsc ' + sccls + '">' + sc + '</span></div>';
+      + '<span class="tsc ' + (side.mine ? rcls : "") + '">' + sc + '</span></div>';
   }
 
   // ---- ledger (compact) view ----
@@ -1415,12 +1411,10 @@
       B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
       as_ = g.opponent_score; bs = g.team_score;
     }
-    const gdone = isDone(g);
-    A.won = gdone && as_ > bs; B.won = gdone && bs > as_;   // bold the winner, not just my team
     const time = ledTime(g);
     const dateCell = '<span class="ddesk">' + escapeHtml(ledDate(g, true)) + '</span>'
       + (!done && time ? '<span class="dtime">' + escapeHtml(time) + '</span>' : "");
-    const teamCell = t => '<div class="gteam' + (t.won ? ' gwin' : '') + (t.me ? ' gme' : '') + '">'
+    const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '">'
       + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
@@ -1499,17 +1493,15 @@
   }
 
   function gameRow(g) {
-    const done = isDone(g), draw = done && g.team_score === g.opponent_score;
-    const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: sideLogo(g.team_logo, g.team_id), score: g.team_score, mine: true,
-                   won: done && g.team_score > g.opponent_score, draw };
-    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: sideLogo(g.opponent_logo, g.opponent_id), score: g.opponent_score, mine: false,
-                  won: done && g.opponent_score > g.team_score, draw };
+    const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: sideLogo(g.team_logo, g.team_id), score: g.team_score, mine: true };
+    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: sideLogo(g.opponent_logo, g.opponent_id), score: g.opponent_score, mine: false };
+    const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
       + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
     return '<a class="game" href="' + gameUrl(g) + '" target="_blank" rel="noopener">'
       + (g.event_name ? '<div class="gevent">' + escapeHtml(g.event_name) + '</div>' : "")
-      + '<div class="scard">' + sideLine(mine) + sideLine(opp) + '</div>'
+      + '<div class="scard">' + sideLine(mine, rcls) + sideLine(opp, rcls) + '</div>'
       + '<div class="when">' + meta + '</div></a>';
   }
 
