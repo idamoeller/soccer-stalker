@@ -669,6 +669,10 @@
     const g = allGames.find(x => String(x.team_id) === String(teamId) && x.team_logo);
     return g ? g.team_logo : null;
   }
+  // Crest for one side of a game row: the game's stored logo, else the team's own
+  // shield (followed_teams.logo / its other games) — so ECNL rows, which carry no
+  // per-game logo, still show a crest for teams we know.
+  function sideLogo(gameLogo, teamId) { return gameLogo || teamLogo(teamId); }
   // Prepend the club name unless it's already part of the team name.
   function withClub(teamId, name) {
     if (!name) return name || "";
@@ -1374,7 +1378,7 @@
   function ledRow(g, combined) {
     const done = isDone(g), r = cResult(g), time = ledTime(g);
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
-    const oppCrest = crestTile(g.opponent_logo, oppName, "opp");
+    const oppCrest = crestTile(sideLogo(g.opponent_logo, g.opponent_id), oppName, "opp");
     const event = g.event_name || "", field = g.field_name || "";
     const tag = combined ? (withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "") : "";
     const pre = tag ? tag + " · " : "";
@@ -1399,12 +1403,12 @@
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
     let A, B, as_, bs;                                   // A = Team A (home side), B = Team B (away side)
     if (g.is_home) {
-      A = { name: meName, logo: g.team_logo, me: true };
-      B = { name: oppName, logo: g.opponent_logo, me: false };
+      A = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
+      B = { name: oppName, logo: sideLogo(g.opponent_logo, g.opponent_id), me: false };
       as_ = g.team_score; bs = g.opponent_score;
     } else {
-      A = { name: oppName, logo: g.opponent_logo, me: false };
-      B = { name: meName, logo: g.team_logo, me: true };
+      A = { name: oppName, logo: sideLogo(g.opponent_logo, g.opponent_id), me: false };
+      B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
       as_ = g.opponent_score; bs = g.team_score;
     }
     const time = ledTime(g);
@@ -1489,8 +1493,8 @@
   }
 
   function gameRow(g) {
-    const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: g.team_logo, score: g.team_score, mine: true };
-    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: g.opponent_logo, score: g.opponent_score, mine: false };
+    const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: sideLogo(g.team_logo, g.team_id), score: g.team_score, mine: true };
+    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: sideLogo(g.opponent_logo, g.opponent_id), score: g.opponent_score, mine: false };
     const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
