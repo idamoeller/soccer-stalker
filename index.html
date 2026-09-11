@@ -376,6 +376,34 @@
   .tfopt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .tfopt.nomatch{display:none;}
 
+  /* ECNL multi-select team list */
+  .ecteamlist{max-height:230px;overflow-y:auto;border:1px solid var(--rule);padding:0 8px;margin-top:6px;}
+  .ecteamhint{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:11px 2px;}
+  .ecteam{display:flex;align-items:center;gap:10px;padding:8px 2px;cursor:pointer;font-size:14px;color:var(--ink);border-bottom:1px solid var(--rule-soft);}
+  .ecteam:last-child{border-bottom:0;}
+  .ecteam input{flex:none;width:15px;height:15px;accent-color:var(--accent);}
+  .ecteam input:disabled{opacity:.6;}
+  .ecteam span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ecteamquick{display:flex;gap:16px;padding:8px 2px 0;}
+  .ecteamquick button{background:none;border:0;padding:0;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);cursor:pointer;}
+  /* batched gotSport-link review */
+  .gsbrow{padding:13px 0;border-top:1px solid var(--rule);}
+  .gsbrow:first-child{border-top:0;}
+  .gsbtop{display:flex;align-items:baseline;gap:10px;justify-content:space-between;}
+  .gsbteam{font-size:14px;font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .gsbchange{background:none;border:0;padding:0;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);cursor:pointer;flex:none;}
+  .gsbmatch{display:flex;align-items:center;gap:11px;margin-top:9px;cursor:pointer;}
+  .gsbmatch .gschk{flex:none;width:16px;height:16px;accent-color:var(--accent);}
+  .gsbmatch .info{flex:1;min-width:0;}
+  .gsbmatch .gn{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;}
+  .gsbmatch .gm{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--faint);margin-top:2px;display:block;}
+  .gsbnone{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted-2);margin-top:9px;}
+  .gsbcands{margin-top:8px;padding-left:26px;}
+  .gsbsearch{display:flex;gap:10px;align-items:center;margin-top:8px;padding-left:26px;}
+  .gsbsearch input{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--field);padding:4px 2px;font-family:var(--sans);font-size:13px;color:var(--ink);outline:none;}
+  .gsbsearch input:focus{border-bottom-color:var(--ink);}
+  .gsbsearch button{flex:none;background:none;border:0;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);cursor:pointer;}
+
   /* ledger type rule: only the team band name + table headers stay uppercase */
   .sechead{font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;
     color:var(--ink);border-bottom-color:var(--rule-strong);padding-bottom:10px;}
@@ -481,8 +509,10 @@
         <select id="ecAge" disabled><option value="">—</option></select></label>
       <label class="field" id="ecFlightWrap" hidden><span>Flight</span>
         <select id="ecFlight" disabled><option value="">—</option></select></label>
-      <label class="field"><span>Team</span>
-        <select id="ecTeam" disabled><option value="">—</option></select></label>
+      <div class="field"><span>Teams · tick one or more</span>
+        <div class="ecteamquick" id="ecTeamQuick" hidden><button type="button" data-ecq="all">Select all</button><button type="button" data-ecq="none">Clear</button></div>
+        <div class="ecteamlist" id="ecTeamList"><div class="ecteamhint">Pick a division above to see its teams.</div></div>
+      </div>
       <label class="field"><span>Nickname · optional</span>
         <input id="ecNick" type="text" placeholder="e.g. Ava ECNL" autocomplete="off"></label>
       <button class="primary" id="ecAdd" disabled>Follow team</button>
@@ -497,21 +527,7 @@
     <div id="addMsg" class="msg"></div>
     <div id="followNudge"></div>
 
-    <div class="matchbox" id="gsLinkBox" hidden>
-      <div id="gsLinkHead" class="gslink-head"></div>
-      <div id="gsLinkBody" hidden>
-        <label class="field"><span>Search gotSport · club or team name</span>
-          <input id="gsLinkQ" type="text" placeholder="e.g. Seacoast United" autocomplete="off"></label>
-        <button class="primary" id="gsLinkBtn">Search gotSport</button>
-        <div id="gsLinkResults" class="gsresults"></div>
-        <details class="gsfallback">
-          <summary>Can't find it? Paste the gotSport team link / ID</summary>
-          <label class="field"><span>gotSport team link · or team ID</span>
-            <input id="gsLinkUrl" type="text" placeholder="rankings.gotsport.com/teams/781238/…" autocomplete="off"></label>
-          <button class="primary" id="gsLinkAdd">Link this team</button>
-        </details>
-      </div>
-    </div>
+    <div class="matchbox" id="gsLinkBox" hidden></div>
   </section>
 
   <section class="view" data-view="home">
@@ -1740,10 +1756,16 @@
     const order = ["Conf", "Age", "Flight", "Team"];
     const idx = order.indexOf(from);
     for (const k of order.slice(idx)) {
+      if (k === "Team") { clearEcTeams(); continue; }
       const sel = $("ec" + k); if (sel) { sel.innerHTML = '<option value="">—</option>'; sel.disabled = true; }
     }
     if (idx <= order.indexOf("Flight")) $("ecFlightWrap").hidden = true;  // only hide when the flight step itself is reset
-    $("ecAdd").disabled = true;
+    $("ecAdd").disabled = true; $("ecAdd").textContent = "Follow team";
+  }
+  function clearEcTeams() {
+    ecState.teams = [];
+    $("ecTeamList").innerHTML = '<div class="ecteamhint">Pick a division above to see its teams.</div>';
+    $("ecTeamQuick").hidden = true;
   }
   async function ecLoadLeagues() {
     if ($("ecLeague").options.length > 1) return;
@@ -1752,42 +1774,71 @@
     catch (e) { ecMsg(errmsg(e), true); }
   }
   async function ecLoadTeams(div) {
-    setOptions($("ecTeam"), [], "loading teams…");
+    $("ecTeamList").innerHTML = '<div class="ecteamhint">Loading teams…</div>';
+    $("ecTeamQuick").hidden = true;
     try {
       const d = await metaFetch("teams", { org: ecState.org, season: ecState.season, conf: ecState.conf, div });
       ecState.teams = d.teams || [];
-      setOptions($("ecTeam"), ecState.teams.map(t => ({ id: t.teamId, name: t.name })),
-        ecState.teams.length ? "— select team —" : "no teams found");
+      renderEcTeams();
       ecMsg("", false);
-    } catch (e) { ecMsg(errmsg(e), true); }
+    } catch (e) { $("ecTeamList").innerHTML = '<div class="ecteamhint">' + escapeHtml(errmsg(e)) + '</div>'; ecMsg(errmsg(e), true); }
   }
-  async function followEcnl() {
-    const t = ecState.teams.find(x => x.teamId === $("ecTeam").value);
-    if (!t) return;
-    if (teamsCache.some(x => String(x.team_id) === "ecnl-" + t.teamId)) {
-      ecMsg("You already follow " + t.name + ".", true); return;
-    }
+  function renderEcTeams() {
+    const list = $("ecTeamList");
+    if (!ecState.teams.length) { list.innerHTML = '<div class="ecteamhint">No teams found.</div>'; $("ecTeamQuick").hidden = true; return; }
+    list.innerHTML = ecState.teams.map((t, i) => {
+      const already = teamsCache.some(x => String(x.team_id) === "ecnl-" + t.teamId);
+      return '<label class="ecteam"><input type="checkbox" data-eci="' + i + '"' + (already ? ' checked disabled' : '') + '>'
+        + '<span>' + escapeHtml(t.name) + (already ? ' · following' : '') + '</span></label>';
+    }).join("");
+    $("ecTeamQuick").hidden = ecState.teams.length < 3;
+    list.querySelectorAll('input[data-eci]').forEach(cb => cb.addEventListener("change", updateEcAdd));
+    updateEcAdd();
+  }
+  function ecCheckedTeams() {
+    return Array.from($("ecTeamList").querySelectorAll('input[data-eci]:checked:not(:disabled)'))
+      .map(cb => ecState.teams[+cb.dataset.eci]).filter(Boolean);
+  }
+  function updateEcAdd() {
+    const n = ecCheckedTeams().length;
+    $("ecAdd").disabled = n === 0;
+    $("ecAdd").textContent = n <= 1 ? "Follow team" : ("Follow " + n + " teams");
+  }
+  async function followEcnlTeams() {
+    const picked = ecCheckedTeams();
+    if (!picked.length) return;
     $("ecAdd").disabled = true; renderFollowNudge(null);
+    // all supported ECNL leagues (org 9/13/21) are Girls → gender 'f'; age from the picked division label.
+    const ageLabel = ($("ecAge").selectedOptions[0] || {}).textContent || $("ecAge").value;
+    const ageNum = sgAgeNum(ageLabel);
+    const single = picked.length === 1;
+    const gkey = single ? pendingMatchKey() : null;   // "match to existing" only applies to a single follow
+    const added = [], skipped = [];
     try {
-      const nick = $("ecNick").value.trim() || t.name;
-      const gkey = pendingMatchKey();
-      // all supported ECNL leagues (org 9/13/21) are Girls → gender 'f'; age from the picked division label.
-      // Store both so the persistent duplicate suggester can match this team across leagues later.
-      const ageLabel = ($("ecAge").selectedOptions[0] || {}).textContent || $("ecAge").value;
-      const { error } = await sb.from("followed_teams").insert({
-        team_id: "ecnl-" + t.teamId, name: nick, user_id: user.id, source: "ecnl", group_id: gkey,
-        age: ageLabel, gender: "f",
-        ecnl_org: ecState.org, ecnl_conf: Number(ecState.conf), ecnl_club: Number(t.clubId), ecnl_team: Number(t.teamId)
-      });
-      if (error) throw error;
-      ecMsg("Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games appear on the next sync."), false);
-      $("ecNick").value = ""; resetMatch();
-      loadTeams(); loadClubs().then(loadGames);
-      ecnlSetLogoFromGotsport("ecnl-" + t.teamId, ecClubQuery(t.name) || t.name, sgAgeNum(ageLabel), "f");
-      if (!gkey) {
-        maybeFollowNudge({ newId: "ecnl-" + t.teamId, gender: "f", age: sgAgeNum(ageLabel), haystack: t.name || "", state: "" });
-        offerGsLink({ key: "ecnl-" + t.teamId, name: nick, age: sgAgeNum(ageLabel), gender: "f", query: ecClubQuery(t.name) || t.name });
+      for (const t of picked) {
+        if (teamsCache.some(x => String(x.team_id) === "ecnl-" + t.teamId)) { skipped.push(t.name); continue; }
+        const nick = single ? ($("ecNick").value.trim() || t.name) : t.name;
+        const { error } = await sb.from("followed_teams").insert({
+          team_id: "ecnl-" + t.teamId, name: nick, user_id: user.id, source: "ecnl", group_id: gkey,
+          age: ageLabel, gender: "f",
+          ecnl_org: ecState.org, ecnl_conf: Number(ecState.conf), ecnl_club: Number(t.clubId), ecnl_team: Number(t.teamId)
+        });
+        if (error) throw error;
+        added.push(t);
+        ecnlSetLogoFromGotsport("ecnl-" + t.teamId, ecClubQuery(t.name) || t.name, ageNum, "f");
       }
+      $("ecNick").value = ""; resetMatch();
+      await loadTeams(); loadClubs().then(loadGames);
+      renderEcTeams();   // reflect newly-followed teams in the picker
+      const noun = added.length === 1 ? "team" : "teams";
+      let msg = added.length ? ("Following " + added.length + " " + noun + (gkey ? " — linked to " + groupLabel(gkey) + "." : ".")) : "";
+      if (skipped.length) msg += (msg ? " " : "") + "Already following " + skipped.join(", ") + ".";
+      ecMsg(msg, false);
+      // batched gotSport review for the newly-added teams that aren't already grouped
+      const targets = gkey ? [] : added.map(t => ({
+        key: "ecnl-" + t.teamId, name: t.name, age: ageNum, gender: "f", query: ecClubQuery(t.name) || t.name
+      }));
+      if (targets.length) offerGsLinkBatch(targets);
     } catch (e) { ecMsg(friendlyError(e), true); $("ecAdd").disabled = false; }
   }
   document.querySelectorAll(".modetab").forEach(b => b.addEventListener("click", () => {
@@ -1820,8 +1871,12 @@
     }).catch(e => ecMsg(errmsg(e), true));
   });
   $("ecFlight").addEventListener("change", () => { resetEc("Team"); const f = $("ecFlight").value; if (f) ecLoadTeams(f); });
-  $("ecTeam").addEventListener("change", () => { $("ecAdd").disabled = !$("ecTeam").value; });
-  $("ecAdd").addEventListener("click", followEcnl);
+  $("ecTeamQuick").addEventListener("click", (e) => {
+    const q = e.target.dataset.ecq; if (!q) return;
+    $("ecTeamList").querySelectorAll('input[data-eci]:not(:disabled)').forEach(cb => { cb.checked = q === "all"; });
+    updateEcAdd();
+  });
+  $("ecAdd").addEventListener("click", followEcnlTeams);
 
   $("authBtn").addEventListener("click", doAuth);
   $("password").addEventListener("keydown", e => { if (e.key === "Enter") doAuth(); });
@@ -1917,8 +1972,8 @@
       });
     } catch (e) { msg.className = "msg err"; msg.textContent = friendlyError(e); }
   }
-  // ---- after adding an ECNL team: find + link its gotSport twin (live scores) --
-  let pendingEcLink = null;   // { key, name, age, gender, query } while the panel is open
+  // ---- after adding ECNL team(s): batched review to find + link each gotSport twin (live scores) --
+  let gsBatch = [];   // rows: { key,name,age,gender,query, cands:[], chosen, on, status, open }
   function ecClubQuery(name) {
     // strip league/age tokens so what's left is basically the club, for a gotSport search
     return String(name || "")
@@ -1926,29 +1981,34 @@
       .replace(/\bu-?\d{1,2}\b/gi, " ").replace(/\b\d{2,4}\b/g, " ")
       .replace(/\s+/g, " ").trim();
   }
-  function offerGsLink(info) {
-    pendingEcLink = info;
+  function offerGsLinkBatch(items) {
+    gsBatch = items.map(it => ({ ...it, cands: [], chosen: null, on: false, status: "searching", open: false }));
     const box = $("gsLinkBox"); if (!box) return;
-    $("gsLinkResults").innerHTML = "";
-    $("gsLinkBody").hidden = true;
-    if ($("gsLinkUrl")) $("gsLinkUrl").value = "";
-    $("gsLinkHead").innerHTML =
-      '<div class="gslq">Check for <b>' + escapeHtml(info.name || "this team") + '</b> on gotSport, to pull in live tournament &amp; bracket scores?</div>'
-      + '<div class="gslbtns"><button class="primary" id="gsLinkYes">Check gotSport</button>'
-      + '<button class="ghostbtn" id="gsLinkSkip">Skip</button></div>';
     box.hidden = false;
-    $("gsLinkYes").addEventListener("click", startGsLink);
-    $("gsLinkSkip").addEventListener("click", closeGsLink);
+    renderGsBatch();
+    gsBatch.forEach((row, i) => searchGsBatchRow(i, row.query));   // auto-find each twin in parallel
   }
-  function startGsLink() {
-    if (!pendingEcLink) return;
-    $("gsLinkBody").hidden = false;
-    $("gsLinkQ").value = pendingEcLink.query || "";
-    gsLinkSearch();
+  async function searchGsBatchRow(i, q) {
+    const row = gsBatch[i]; if (!row) return;
+    row.status = "searching"; renderGsBatch();
+    try {
+      const { teams } = await gsQueryTeams(q, row.gender, row.age);
+      row.cands = rankGsForLink(teams, q).slice(0, 6);
+      const top = row.cands[0];
+      row.chosen = top || null;
+      row.on = !!top && gsOverlap(top, q) >= 1;   // pre-tick only when the club name actually overlaps
+      row.status = "ready";
+    } catch (e) { row.status = "error"; row.cands = []; row.chosen = null; row.on = false; }
+    renderGsBatch();
   }
-  function closeGsLink() {
-    pendingEcLink = null;
-    if ($("gsLinkBox")) $("gsLinkBox").hidden = true;
+  function gsOverlap(t, query) {
+    const toks = ecClubQuery(query).toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    if (!toks.length) return 0;
+    const hay = ((t.clubName || "") + " " + (t.name || "")).toLowerCase();
+    return toks.filter(w => hay.includes(w)).length;
+  }
+  function gsBatchMeta(t) {
+    return [t.clubName, t.state, t.age ? ("U" + t.age) : ""].filter(Boolean).join(" · ");
   }
   function rankGsForLink(teams, refName) {
     const toks = ecClubQuery(refName).toLowerCase().split(/\s+/).filter(w => w.length > 2);
@@ -1961,78 +2021,98 @@
     return teams.map((t, i) => ({ t, i, s: scoreOf(t) }))
       .sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.t);
   }
-  async function gsLinkSearch() {
-    if (!pendingEcLink) return;
-    const q = $("gsLinkQ").value.trim();
-    const res = $("gsLinkResults");
-    if (!q) { res.innerHTML = '<div class="gshint">Type a club or team name, or paste a link below.</div>'; return; }
-    res.innerHTML = '<div class="gshint">Searching gotSport…</div>';
-    $("gsLinkBtn").disabled = true;
-    try {
-      const { teams } = await gsQueryTeams(q, pendingEcLink.gender, pendingEcLink.age);
-      renderGsLinkResults(rankGsForLink(teams, pendingEcLink.query).slice(0, 6));
-    } catch (e) {
-      res.innerHTML = '<div class="gshint">Search failed: ' + escapeHtml(errmsg(e)) + '</div>';
-    } finally { $("gsLinkBtn").disabled = false; }
-  }
-  function renderGsLinkResults(teams) {
-    const res = $("gsLinkResults");
-    if (!teams.length) {
-      res.innerHTML = '<div class="gshint">No gotSport teams found — try a shorter club name, or paste the team link below.</div>';
-      return;
-    }
-    res.innerHTML = teams.map((t, i) => {
-      const following = teamsCache.some(x => String(x.team_id) === String(t.teamId));
-      const linked = following && String(groupKeyOf(String(t.teamId))) === String(pendingEcLink.key);
-      const label = linked ? 'linked ✓' : (following ? 'following · link' : '+ follow & link');
-      const meta = [t.clubName, t.state, t.age ? ("U" + t.age) : ""].filter(Boolean).join(" · ");
-      return '<button class="gsitem" data-i="' + i + '"' + (linked ? ' disabled' : '') + '>'
-        + crest(t.logo, t.name)
-        + '<div class="info"><div class="gn">' + escapeHtml(t.name) + '</div>'
-        + (meta ? '<div class="gm">' + escapeHtml(meta) + '</div>' : '') + '</div>'
-        + '<span class="plus">' + label + '</span></button>';
+  function renderGsBatch() {
+    const box = $("gsLinkBox"); if (!box) return;
+    const rows = gsBatch.map((row, i) => {
+      let body;
+      if (row.status === "searching") body = '<div class="gsbnone">Searching gotSport…</div>';
+      else if (row.chosen) {
+        body = '<label class="gsbmatch"><input type="checkbox" class="gschk" data-i="' + i + '"' + (row.on ? " checked" : "") + '>'
+          + crest(row.chosen.logo, row.chosen.name)
+          + '<span class="info"><span class="gn">' + escapeHtml(row.chosen.name) + '</span>'
+          + '<span class="gm">' + escapeHtml(gsBatchMeta(row.chosen)) + '</span></span></label>';
+      } else if (row.status === "error") body = '<div class="gsbnone">Search failed — tap “pick / search” to retry.</div>';
+      else body = '<div class="gsbnone">No gotSport match found — tap “pick / search”.</div>';
+
+      let extra = "";
+      if (row.open) {
+        const cands = row.cands.length
+          ? row.cands.map((t, j) => {
+              const chosen = row.chosen && String(row.chosen.teamId) === String(t.teamId);
+              return '<button class="gsitem" data-pick="' + i + '_' + j + '"' + (chosen ? ' disabled' : '') + '>'
+                + crest(t.logo, t.name)
+                + '<span class="info"><span class="gn">' + escapeHtml(t.name) + '</span>'
+                + '<span class="gm">' + escapeHtml(gsBatchMeta(t)) + '</span></span>'
+                + '<span class="plus">' + (chosen ? "chosen ✓" : "choose") + '</span></button>';
+            }).join("")
+          : '<div class="gsbnone">No candidates — try a different name below.</div>';
+        extra = '<div class="gsbcands">' + cands + '</div>'
+          + '<div class="gsbsearch"><input type="text" data-search="' + i + '" placeholder="club or team name" value="' + escapeHtml(row.query) + '"><button data-go="' + i + '">Search</button></div>';
+      }
+      return '<div class="gsbrow"><div class="gsbtop"><span class="gsbteam">' + escapeHtml(row.name) + '</span>'
+        + '<button class="gsbchange" data-toggle="' + i + '">' + (row.open ? "close" : (row.chosen ? "change" : "pick / search")) + '</button></div>'
+        + body + extra + '</div>';
     }).join("");
-    res.querySelectorAll(".gsitem:not([disabled])").forEach(b => b.addEventListener("click", () => linkGsTeam(teams[+b.dataset.i])));
+    const nOn = gsBatch.filter(r => r.on && r.chosen).length;
+    box.innerHTML =
+      '<div class="gslink-head"><div class="gslq">Link to <b>gotSport</b> for live tournament &amp; bracket scores? Confident matches are ticked — adjust any, then link.</div></div>'
+      + '<div class="gsbatch">' + rows + '</div>'
+      + '<div class="gslbtns"><button class="primary" id="gsBatchApply"' + (nOn ? "" : " disabled") + '>Link selected' + (nOn ? " (" + nOn + ")" : "") + '</button>'
+      + '<button class="ghostbtn" id="gsBatchSkip">' + (nOn ? "Skip rest" : "Done") + '</button></div>';
+    wireGsBatch();
   }
-  async function linkGsTeam(t) {
-    if (!t || !pendingEcLink) return;
-    const key = pendingEcLink.key;
-    const already = teamsCache.some(x => String(x.team_id) === String(t.teamId));
-    try {
-      // give the ECNL row this twin's exact club shield
-      if (t.logo) await sb.from("followed_teams").update({ logo: t.logo }).eq("team_id", key).eq("user_id", user.id);
-      if (already) {
-        await linkTeams(String(t.teamId), key);          // already followed → just join the group
-        finishGsLink("You already follow " + t.name + " — linked it to this team.");
-      } else {
-        const { error } = await sb.from("followed_teams").insert(
-          { team_id: String(t.teamId), name: t.name, user_id: user.id, source: "gotsport", group_id: key });
-        if (error) throw error;
-        finishGsLink("Linked " + t.name + " — its live scores will flow into this team.");
-      }
-    } catch (e) { $("gsLinkResults").innerHTML = '<div class="gshint">Couldn\'t link: ' + escapeHtml(friendlyError(e)) + '</div>'; }
+  function wireGsBatch() {
+    const box = $("gsLinkBox"); if (!box) return;
+    box.querySelectorAll(".gschk").forEach(cb => cb.addEventListener("change", () => {
+      const r = gsBatch[+cb.dataset.i]; if (r) r.on = cb.checked;
+      renderGsBatch();   // refresh the "Link selected (N)" count
+    }));
+    box.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => {
+      const r = gsBatch[+b.dataset.toggle]; if (r) { r.open = !r.open; renderGsBatch(); }
+    }));
+    box.querySelectorAll("[data-pick]").forEach(b => b.addEventListener("click", () => {
+      const [i, j] = b.dataset.pick.split("_").map(Number);
+      const r = gsBatch[i]; if (r && r.cands[j]) { r.chosen = r.cands[j]; r.on = true; r.open = false; renderGsBatch(); }
+    }));
+    box.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
+      const i = +b.dataset.go, inp = box.querySelector('[data-search="' + i + '"]'), q = inp ? inp.value.trim() : "";
+      if (q) { gsBatch[i].query = q; searchGsBatchRow(i, q); }
+    }));
+    box.querySelectorAll("[data-search]").forEach(inp => inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); const i = +inp.dataset.search, q = inp.value.trim(); if (q) { gsBatch[i].query = q; searchGsBatchRow(i, q); } }
+    }));
+    const apply = $("gsBatchApply"); if (apply) apply.addEventListener("click", applyGsBatch);
+    const skip = $("gsBatchSkip"); if (skip) skip.addEventListener("click", closeGsBatch);
   }
-  async function linkGsPasted() {
-    if (!pendingEcLink) return;
-    const id = parseTeamId($("gsLinkUrl").value);
-    if (!id) { $("gsLinkResults").innerHTML = '<div class="gshint">Couldn\'t find a team ID in that link.</div>'; return; }
-    const key = pendingEcLink.key;
-    try {
-      if (teamsCache.some(x => String(x.team_id) === String(id))) {
-        await linkTeams(String(id), key);
-        finishGsLink("You already follow team " + id + " — linked it to this team.");
-      } else {
-        const { error } = await sb.from("followed_teams").insert(
-          { team_id: String(id), name: "Team " + id, user_id: user.id, source: "gotsport", group_id: key });
-        if (error) throw error;
-        finishGsLink("Linked team " + id + " — its games fill in on the next sync.");
-      }
-    } catch (e) { $("gsLinkResults").innerHTML = '<div class="gshint">Couldn\'t link: ' + escapeHtml(friendlyError(e)) + '</div>'; }
+  function closeGsBatch() {
+    gsBatch = [];
+    const box = $("gsLinkBox"); if (box) { box.hidden = true; box.innerHTML = ""; }
   }
-  function finishGsLink(msg) {
-    ecMsg(msg, false);
-    closeGsLink();
-    loadTeams(); loadGames();
+  async function applyGsBatch() {
+    const targets = gsBatch.filter(r => r.on && r.chosen);
+    if (!targets.length) { closeGsBatch(); return; }
+    const apply = $("gsBatchApply"); if (apply) { apply.disabled = true; apply.textContent = "Linking…"; }
+    let linked = 0; const fails = [];
+    for (const r of targets) {
+      try { await linkGsCore(r.key, r.chosen); linked++; }
+      catch (e) { fails.push(r.chosen.name); }
+    }
+    closeGsBatch();
+    await loadTeams(); loadGames();
+    let msg = linked ? ("Linked " + linked + " team" + (linked === 1 ? "" : "s") + " to gotSport — live scores will flow in.") : "";
+    if (fails.length) msg += (msg ? " " : "") + "Couldn't link " + fails.join(", ") + ".";
+    ecMsg(msg || "Nothing linked.", fails.length > 0);
+  }
+  async function linkGsCore(key, t) {
+    // give the ECNL (primary) row this twin's exact club shield, then follow+group the twin
+    if (t.logo) await sb.from("followed_teams").update({ logo: t.logo }).eq("team_id", key).eq("user_id", user.id);
+    if (teamsCache.some(x => String(x.team_id) === String(t.teamId))) {
+      await linkTeams(String(t.teamId), key);          // already followed → just join the group
+    } else {
+      const { error } = await sb.from("followed_teams").insert(
+        { team_id: String(t.teamId), name: t.name, user_id: user.id, source: "gotsport", group_id: key });
+      if (error) throw error;
+    }
   }
   // ECNL teams carry no logo from TGS (its schedule images are coach photos), so
   // borrow a club shield from gotSport: best-effort, stored on the ECNL row so
@@ -2049,10 +2129,6 @@
       }
     } catch (e) { /* shield is best-effort; a monogram is a fine fallback */ }
   }
-  $("gsLinkBtn").addEventListener("click", gsLinkSearch);
-  $("gsLinkQ").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); gsLinkSearch(); } });
-  $("gsLinkAdd").addEventListener("click", linkGsPasted);
-
   $("gsSearch").addEventListener("click", gsSearch);
   $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
   $("matchChk").addEventListener("change", () => { $("matchSelWrap").hidden = !$("matchChk").checked; });
