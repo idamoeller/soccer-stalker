@@ -20,6 +20,7 @@ NTFY_TOPIC. Tunables: LOOKBACK_HOURS, LOOKAHEAD_HOURS.
 Scope: gotSport only. ECNL/RL live scores are a separate site (later).
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -329,6 +330,149 @@ def notify(game, ts, os_, label):
 
 
 # --------------------------------------------------------------------------- #
+# Discovery: add brand-new games for followed teams straight off the bracket
+# (e.g. a day-of tournament knockout the lagging team feed hasn't created yet).
+# Page teams are matched to our followed teams by NAME; a discovered game is
+# inserted with a stable "disc-" match_id, and the front-end hides it once the
+# real feed row for the same game shows up.
+# --------------------------------------------------------------------------- #
+def load_index():
+    """Discovery inputs from our own data: full (club-qualified) names of currently
+    followed gotSport teams, the games we already have (for de-dup), and per-event
+    metadata. Teams with no cached club name are skipped -- gotSport's bare
+    team_name (e.g. 'ECNL RL G2013/14') is shared by every team in the division,
+    so a name alone can't identify a team."""
+    followed = {str(t.get("team_id") or "")
+                for t in sb_get("followed_teams", {"select": "team_id"}, required=False)}
+    clubs = {}
+    for c in sb_get("clubs", {"select": "team_id,club_name"}, required=False):
+        cn = (c.get("club_name") or "").strip()
+        if cn:
+            clubs[str(c.get("team_id") or "")] = cn
+    rows = sb_get("games", {"select": "team_id,team_name,event_id,event_name,division_name,match_date,opponent_name",
+                            "source": "eq.gotsport"}, required=False)
+    full_names, seen = [], set()     # distinct (norm club-qualified name, team_id)
+    disp, dates, div_by, event_names = {}, {}, {}, {}
+    for g in rows:
+        tid = str(g.get("team_id") or "")
+        tn = (g.get("team_name") or "").strip()
+        ev = str(g.get("event_id") or "")
+        if ev and g.get("event_name"):
+            event_names.setdefault(ev, g["event_name"])
+        if tid and ev and g.get("division_name"):
+            div_by.setdefault((tid, ev), g["division_name"])
+        if tid and g.get("match_date"):
+            dates.setdefault(tid, set()).add(g.get("match_date"))
+        # discovery targets: currently-followed gotSport teams we can name-qualify
+        if tid in followed and tid.isdigit() and tid in clubs and tn:
+            club = clubs[tid]
+            full = tn if club.lower() in tn.lower() else f"{club} {tn}"
+            disp.setdefault(tid, full)
+            k = (norm(full), tid)
+            if k not in seen:
+                seen.add(k); full_names.append(k)
+    return {"full_names": full_names, "disp": disp, "dates": dates,
+            "div_by": div_by, "event_names": event_names}
+
+
+def match_followed(page_name, idx):
+    """team_id of a followed team whose full club-qualified name matches this page
+    team name (page equals, or contains, our full name). Strong match -- avoids the
+    generic-suffix false positives a bare-name match produces."""
+    pn = norm(page_name)
+    for full, tid in idx["full_names"]:
+        if pn == full or full in pn:
+            return tid
+    return None
+
+
+def have_game(tid, date, idx):
+    """True if we already store ANY game for this team on this date. We de-dup on
+    (team, date) -- NOT opponent -- because the same opponent is named differently
+    on the bracket vs the team feed, so a name match there would risk a duplicate.
+    The cost: a *second* new game on a day we already have one won't be discovered
+    (a miss, never a duplicate -- the safe bias)."""
+    return date in idx["dates"].get(tid, set())
+
+
+def disc_match_id(ev, date, a, b):
+    base = f"{ev}|{date}|" + "|".join(sorted([norm(a), norm(b)]))
+    return "disc-" + hashlib.md5(base.encode("utf-8")).hexdigest()[:16]
+
+
+def build_disc_row(tid, ev, is_home, ts, os_, opp, date, idx, labels):
+    our = idx["disp"].get(tid, "")
+    return {
+        "match_id": disc_match_id(ev, date, our, opp),
+        "team_id": tid, "team_name": our,
+        "team_score": ts, "opponent_id": None, "opponent_name": opp, "opponent_score": os_,
+        "is_home": is_home, "match_time": None, "match_date": date,
+        "event_id": str(ev),
+        "event_name": idx["event_names"].get(str(ev)) or labels.get(str(ev)),
+        "division_name": idx["div_by"].get((tid, str(ev))),
+        "source": "gotsport", "updated_at": now_iso(),
+    }
+
+
+def insert_game(row):
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/games",
+                      headers={**sb_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+                      params={"on_conflict": "match_id,team_id"}, json=[row], timeout=30)
+    if not r.ok:
+        print(f"    ! discover insert failed {r.status_code}: {r.text[:200]}")
+    return r.ok
+
+
+def discover(parsed, ev, idx, labels, dry=False, ignore_date=False):
+    """Scan a parsed event page for games involving a followed team that we don't
+    already have; add the day-of ones (or, in dry mode, just print what we'd do)."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    added = 0
+    for pm in parsed:
+        d = pm.get("date")
+        for side in ("home", "away"):
+            nm = pm["home"] if side == "home" else pm["away"]
+            if not nm:
+                continue
+            tid = match_followed(nm, idx)
+            if not tid:
+                continue
+            if side == "home":
+                ts, os_, opp, is_home = pm["home_score"], pm["away_score"], pm["away"], True
+            else:
+                ts, os_, opp, is_home = pm["away_score"], pm["home_score"], pm["home"], False
+            have = have_game(tid, d, idx)
+            sc = f"{ts}-{os_}" if ts is not None and os_ is not None else "—"
+            if dry:
+                print(f"    [{'HAVE' if have else 'NEW '}] {idx['disp'].get(tid, tid)}  {sc}  vs {opp}  ({d})")
+                continue
+            if have or (not ignore_date and d != today):
+                continue                                   # only add games on a day we have nothing for this team
+            row = build_disc_row(tid, ev, is_home, ts, os_, opp, d, idx, labels)
+            if insert_game(row):                           # deterministic disc- id + upsert => no double-insert
+                added += 1
+                print(f"    DISCOVERED+ADDED: {idx['disp'].get(tid, tid)} {sc} vs {opp} ({d})")
+                if ts is not None and os_ is not None:
+                    notify(row, ts, os_, labels.get(str(ev)))
+    return added
+
+
+def discover_probe(event_id, age=None, gender=None):
+    """Preview discovery on one event page (reads Supabase for the index, no writes)."""
+    cookies = load_cookies()
+    idx = load_index()
+    url = schedule_url(event_id, age, gender)
+    print(f"GET {url}")
+    status, html = fetch_schedule(url, cookies)
+    print(f"status: {status}")
+    if status != "ok":
+        return
+    parsed = parse_public_matches(html)
+    print(f"parsed {len(parsed)} games; followed-team games on this page (HAVE = already stored, NEW = would add):")
+    discover(parsed, str(event_id), idx, watch_labels(), dry=True, ignore_date=True)
+
+
+# --------------------------------------------------------------------------- #
 # Probe mode (no Supabase): fetch + parse one event, print the games
 # --------------------------------------------------------------------------- #
 def probe(event_id, age=None, gender=None):
@@ -455,11 +599,18 @@ def run(force=False):
     cookies = load_cookies()
     maybe_harvest_group_map(cookies)   # once/day: refresh division->group deep-link map
 
-    games = all_today_games() if force else window_games()
+    if force:
+        games = all_today_games()
+    else:
+        seen = {}
+        for g in window_games() + all_today_games():   # +today keeps event pages hot all game-day (for discovery)
+            seen[(g["match_id"], g["team_id"])] = g
+        games = list(seen.values())
     if not games:
         print("No gotSport games in the window right now. Nothing to do.")
         return
     labels = watch_labels()
+    idx = load_index()
 
     # Bucket games by (event, age, gender) so each distinct schedule page is
     # fetched exactly once, then scored against every game in that bucket.
@@ -472,7 +623,7 @@ def run(force=False):
         buckets.setdefault((ev, age, gender), []).append(g)
 
     print(f"{len(games)} game(s) in window across {len(buckets)} schedule page(s).")
-    changed = 0
+    changed = discovered = 0
     for (ev, age, gender), bucket in buckets.items():
         url = schedule_url(ev, age, gender)
         status, html = fetch_schedule(url, cookies)
@@ -493,8 +644,9 @@ def run(force=False):
             patch_score(g["match_id"], g["team_id"], ts, os_)
             notify(g, ts, os_, labels.get(ev))
             changed += 1
+        discovered += discover(parsed, ev, idx, labels)    # add day-of games we don't have yet
         time.sleep(0.4)                                    # be polite to gotSport
-    print(f"Done. {changed} score update(s).")
+    print(f"Done. {changed} score update(s), {discovered} discovered.")
 
 
 def main():
@@ -504,12 +656,21 @@ def main():
                     help="no Supabase: fetch+parse one event schedule and print its games")
     ap.add_argument("--harvest-groups", action="store_true",
                     help="map each division to its schedule group id (writes event_groups) and exit")
+    ap.add_argument("--discover-probe", nargs="+", metavar="EVENT [AGE] [GENDER]",
+                    help="preview discovery on one event page (reads Supabase for the index, no writes)")
     args = ap.parse_args()
 
     if args.probe:
         probe(args.probe[0],
               args.probe[1] if len(args.probe) > 1 else None,
               args.probe[2] if len(args.probe) > 2 else None)
+        return
+    if args.discover_probe:
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
+        discover_probe(args.discover_probe[0],
+                       args.discover_probe[1] if len(args.discover_probe) > 1 else None,
+                       args.discover_probe[2] if len(args.discover_probe) > 2 else None)
         return
     if args.harvest_groups:
         if not SUPABASE_URL or not SUPABASE_KEY:

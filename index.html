@@ -1690,6 +1690,18 @@
     if (vb) vb.textContent = (past ? "past " + pastWeeks + "w" : "upcoming") + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
   }
 
+  // A "disc-" row is a scraper-discovered placeholder for a day the lagging feed
+  // hadn't populated yet. Once the feed adds ANY real game for that team+date, hide
+  // the placeholder(s) for that team+date. We key on team+date (not opponent):
+  // the same opponent is spelled differently on the bracket vs the feed, so an
+  // opponent match would leave duplicates. Cost: a placeholder for a genuine 2nd
+  // same-day game is hidden once the feed fills that date — a miss, never a dupe.
+  function dedupeDiscovered(games) {
+    const key = g => String(g.team_id) + "|" + (g.match_date || "");
+    const real = new Set();
+    for (const g of games) if (!String(g.match_id).startsWith("disc-")) real.add(key(g));
+    return games.filter(g => !(String(g.match_id).startsWith("disc-") && real.has(key(g))));
+  }
   async function loadGames() {
     const el = $("games");
     const { data: teams } = await sb.from("followed_teams").select("team_id");
@@ -1697,7 +1709,7 @@
     if (!ids.length) { allGames = []; el.innerHTML = '<div class="empty">no teams yet · add one in Teams</div>'; gamesShown = 0; updateTfLabel(); return; }
     const { data: games, error } = await sb.from("games").select("*").in("team_id", ids);
     if (error) { el.innerHTML = '<div class="empty">error loading games — ' + escapeHtml(errmsg(error)) + '</div>'; return; }
-    allGames = games || [];
+    allGames = dedupeDiscovered(games || []);
     // "synced X ago" reflects the freshest game the poller wrote
     const maxUpd = allGames.reduce((mx, g) => { const t = g.updated_at ? Date.parse(g.updated_at) : 0; return t > mx ? t : mx; }, 0);
     if (maxUpd) { lastSyncedAt = maxUpd; refreshSyncedAt(); }
