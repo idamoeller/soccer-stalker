@@ -14,6 +14,8 @@
 //   teams?org=9&season=80&conf=4265&div=40563     (div = age for ECNL, flight for RL)
 //   gotSport name search (open ranking API — no auth, requires gender+age):
 //   gotsport-search?q=Scorpions&gender=f&age=13&page=1   (optional: state=MA, tier, filter_by)
+//   gotSport league picker (server-rendered event pages — no auth, no captcha):
+//   gs-event-clubs?event=56498    (club names in a league event, for the picker autocomplete)
 //
 // Deploy from the Supabase dashboard: Edge Functions -> open the function whose
 // slug is "meta-ecnl" -> paste this file (replace all) -> Deploy.
@@ -26,6 +28,7 @@ const A1 = "https://api.athleteone.com/api/Script";
 // gotSport's public rankings API. Browser-ish headers keep datacenter IPs unblocked
 // (same trick the poller uses). Endpoint is open, but wants a real UA/Referer.
 const GOTSPORT_API = "https://system.gotsport.com/api/v1";
+const GOTSPORT = "https://system.gotsport.com";
 const GS_RANK_HEADERS: Record<string, string> = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Accept": "application/json",
@@ -89,6 +92,20 @@ function parseTeams(html: string): Array<{ teamId: string; clubId: string; name:
     if (!seen.has(teamId)) seen.set(teamId, { teamId, clubId, name });
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// gotSport org_event pages are server-rendered and NOT captcha-gated on the club
+// listing — parse the league event's club names to feed the picker's autocomplete.
+// (Team following still goes through gotsportSearch, which returns ranking ids.)
+function parseEventClubs(html: string, eventId: string): string[] {
+  const re = new RegExp(`events/${eventId}/clubs/\\d+"[^>]*>\\s*([^<]+?)\\s*<`, "g");
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const name = unesc(m[1]).replace(/\s+/g, " ").trim();
+    if (name.length > 1) seen.add(name);
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
 }
 
 // Prefix a gotSport relative logo path with the host (matches poller/front-end).
@@ -162,6 +179,13 @@ Deno.serve(async (req: Request) => {
       if (!q.get("q")) return json({ error: "Enter a team or club name." }, 400);
       if (!q.get("gender") || !q.get("age")) return json({ error: "Gender and age are required." }, 400);
       return json(await gotsportSearch(q));
+    }
+    if (action === "gs-event-clubs") {
+      const event = q.get("event");
+      if (!event || !/^\d+$/.test(event)) return json({ error: "event id required" }, 400);
+      const r = await fetch(`${GOTSPORT}/org_event/events/${event}/clubs`, { headers: GS_RANK_HEADERS });
+      if (!r.ok) return json({ error: `gotSport ${r.status}`, clubs: [] });
+      return json({ clubs: parseEventClubs(await r.text(), event) });
     }
     return json({ error: "unknown action" }, 400);
   } catch (e) {

@@ -63,10 +63,10 @@
     padding:7px 2px 9px;font-family:var(--sans);font-size:15.5px;color:var(--ink);outline:none;-webkit-appearance:none;appearance:none;}
   .field select:focus{border-bottom-color:var(--ink);}
   .field select:disabled{color:var(--faint);opacity:.7;}
-  .modetabs{display:inline-flex;border:1px solid var(--field);border-radius:2px;overflow:hidden;margin:0 0 6px;}
-  .modetabs button{background:none;padding:7px 14px;font-family:var(--mono);font-size:11px;letter-spacing:.02em;text-transform:none;color:var(--muted);cursor:pointer;}
-  .modetabs button.on{background:var(--ink);color:var(--paper);}
-  .modetabs button+button{border-left:1px solid var(--field);}
+  .modetabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;}
+  .modetabs button{background:none;border:1px solid var(--field);border-radius:2px;padding:6px 12px;font-family:var(--mono);font-size:11px;letter-spacing:.02em;text-transform:none;color:var(--muted);cursor:pointer;}
+  .modetabs button.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .glhint{font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:var(--muted-2);margin:2px 0 14px;}
 
   /* buttons */
   .primary{display:block;width:100%;margin-top:26px;background:var(--ink);color:var(--paper);
@@ -477,6 +477,11 @@
     <div class="modetabs">
       <button class="modetab on" data-mode="gotsport">gotSport</button>
       <button class="modetab" data-mode="ecnl">ECNL</button>
+      <button class="modetab" data-mode="gl" data-ev="56498" data-lg="GA Aspire">Aspire</button>
+      <button class="modetab" data-mode="gl" data-ev="56497" data-lg="Girls Academy">GA</button>
+      <button class="modetab" data-mode="gl" data-ev="51974" data-lg="DPL">DPL</button>
+      <button class="modetab" data-mode="gl" data-ev="55967" data-lg="NAL">NAL</button>
+      <button class="modetab" data-mode="gl" data-ev="55964" data-lg="NECSL">NECSL</button>
     </div>
 
     <div id="gotsportForm">
@@ -516,6 +521,20 @@
       <label class="field"><span>Nickname · optional</span>
         <input id="ecNick" type="text" placeholder="e.g. Ava ECNL" autocomplete="off"></label>
       <button class="primary" id="ecAdd" disabled>Follow team</button>
+    </div>
+
+    <div id="glForm" hidden>
+      <div class="glhint" id="glHint">Girls only — pick an age group, then start typing your club.</div>
+      <label class="field"><span>Age group</span>
+        <select id="glAge"><option value="">—</option></select></label>
+      <label class="field"><span>Club</span>
+        <input id="glClub" type="text" list="glClubList" placeholder="start typing your club…" autocomplete="off">
+        <datalist id="glClubList"></datalist></label>
+      <div class="field"><span>Teams · tick one or more</span>
+        <div class="ecteamquick" id="glTeamQuick" hidden><button type="button" data-glq="all">Select all</button><button type="button" data-glq="none">Clear</button></div>
+        <div class="ecteamlist" id="glTeamList"><div class="ecteamhint">Pick an age and club above to see teams.</div></div>
+      </div>
+      <button class="primary" id="glAdd" disabled>Follow team</button>
     </div>
 
     <div class="matchbox" id="matchBox" hidden>
@@ -1736,6 +1755,7 @@
   // ---------- wire up ----------
   // ---------- ECNL picker (cascading, fed by the meta-ecnl proxy) ----------
   const ecState = { leagues: [], org: null, season: null, hasFlights: false, conf: null, teams: [] };
+  let glState = { event: null, league: null, clubs: [], teams: [] };   // gotSport-league picker (Aspire/GA/DPL/NAL/NECSL)
   function ecMsg(t, err) { const m = $("addMsg"); m.className = "msg" + (err ? " err" : (t ? " ok" : "")); m.textContent = t; }
   async function metaFetch(action, params) {
     const { data: { session } } = await sb.auth.getSession();
@@ -1843,10 +1863,107 @@
   }
   document.querySelectorAll(".modetab").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll(".modetab").forEach(x => x.classList.toggle("on", x === b));
-    const ecnl = b.dataset.mode === "ecnl";
-    $("gotsportForm").hidden = ecnl; $("ecnlForm").hidden = !ecnl; ecMsg("", false);
-    if (ecnl) ecLoadLeagues();
+    const mode = b.dataset.mode;
+    $("gotsportForm").hidden = mode !== "gotsport";
+    $("ecnlForm").hidden = mode !== "ecnl";
+    $("glForm").hidden = mode !== "gl";
+    ecMsg("", false);
+    if (mode === "ecnl") ecLoadLeagues();
+    if (mode === "gl") glSelectLeague(b.dataset.ev, b.dataset.lg);
   }));
+
+  // ---------- gotSport league pickers (Aspire / GA / DPL / NAL / NECSL) ----------
+  // Each league is a season-specific gotSport org_event. We list the league's clubs
+  // (server-rendered event page, via the proxy) for the club autocomplete, then
+  // resolve the chosen club+age to followable ranking teams with the same
+  // gotsport-search the app already uses. Girls only.
+  (function fillGlAges() {
+    let html = '<option value="">—</option>';
+    for (let a = 8; a <= 19; a++) html += '<option value="' + a + '">U' + a + '</option>';
+    $("glAge").innerHTML = html;
+  })();
+  function glSelectLeague(event, league) {
+    glState = { event, league, clubs: [], teams: [] };
+    $("glHint").textContent = league + " · girls — pick an age group, then start typing your club.";
+    $("glAge").value = ""; $("glClub").value = ""; $("glClubList").innerHTML = "";
+    clearGlTeams();
+    glLoadClubs();   // fills the club autocomplete; free-typing works even if this fails
+  }
+  async function glLoadClubs() {
+    try {
+      const d = await metaFetch("gs-event-clubs", { event: glState.event });
+      glState.clubs = d.clubs || [];
+      $("glClubList").innerHTML = glState.clubs.map(c => '<option value="' + escapeHtml(c) + '"></option>').join("");
+    } catch (e) { /* the datalist is a convenience; typing a club name still works */ }
+  }
+  async function glLoadTeams() {
+    const age = $("glAge").value, club = $("glClub").value.trim();
+    if (!age || !club) { clearGlTeams(); return; }
+    $("glTeamList").innerHTML = '<div class="ecteamhint">Finding teams…</div>';
+    $("glTeamQuick").hidden = true;
+    try {
+      const { teams } = await gsQueryTeams(club, "f", age);
+      glState.teams = teams || [];
+      renderGlTeams();
+    } catch (e) { $("glTeamList").innerHTML = '<div class="ecteamhint">' + escapeHtml(errmsg(e)) + '</div>'; }
+  }
+  function renderGlTeams() {
+    const list = $("glTeamList");
+    if (!glState.teams.length) { list.innerHTML = '<div class="ecteamhint">No teams found — try just the club name, or a shorter version.</div>'; $("glTeamQuick").hidden = true; $("glAdd").disabled = true; return; }
+    list.innerHTML = glState.teams.map((t, i) => {
+      const already = teamsCache.some(x => String(x.team_id) === String(t.teamId));
+      const meta = [t.clubName, t.state].filter(Boolean).join(" · ");
+      return '<label class="ecteam"><input type="checkbox" data-gli="' + i + '"' + (already ? ' checked disabled' : '') + '>'
+        + '<span>' + escapeHtml(t.name) + (meta ? ' — ' + escapeHtml(meta) : '') + (already ? ' · following' : '') + '</span></label>';
+    }).join("");
+    $("glTeamQuick").hidden = glState.teams.length < 3;
+    list.querySelectorAll('input[data-gli]').forEach(cb => cb.addEventListener("change", updateGlAdd));
+    updateGlAdd();
+  }
+  function glCheckedTeams() {
+    return Array.from($("glTeamList").querySelectorAll('input[data-gli]:checked:not(:disabled)'))
+      .map(cb => glState.teams[+cb.dataset.gli]).filter(Boolean);
+  }
+  function updateGlAdd() {
+    const n = glCheckedTeams().length;
+    $("glAdd").disabled = n === 0;
+    $("glAdd").textContent = n <= 1 ? "Follow team" : ("Follow " + n + " teams");
+  }
+  function clearGlTeams() {
+    glState.teams = [];
+    $("glTeamList").innerHTML = '<div class="ecteamhint">Pick an age and club above to see teams.</div>';
+    $("glTeamQuick").hidden = true;
+    $("glAdd").disabled = true; $("glAdd").textContent = "Follow team";
+  }
+  async function followGlTeams() {
+    const picked = glCheckedTeams();
+    if (!picked.length) return;
+    $("glAdd").disabled = true; renderFollowNudge(null);
+    const added = [], skipped = [];
+    try {
+      for (const t of picked) {
+        if (teamsCache.some(x => String(x.team_id) === String(t.teamId))) { skipped.push(t.name); continue; }
+        const { error } = await sb.from("followed_teams")
+          .insert({ team_id: String(t.teamId), name: t.name, user_id: user.id, source: "gotsport", group_id: null });
+        if (error) throw error;
+        added.push(t);
+      }
+      await loadTeams(); renderGlTeams(); loadGames();
+      const noun = added.length === 1 ? "team" : "teams";
+      let msg = added.length ? ("Following " + added.length + " " + noun + " — games fill in on the next sync.") : "";
+      if (skipped.length) msg += (msg ? " " : "") + "Already following " + skipped.join(", ") + ".";
+      ecMsg(msg, false);
+    } catch (e) { ecMsg(friendlyError(e), true); $("glAdd").disabled = false; }
+  }
+  $("glAge").addEventListener("change", glLoadTeams);
+  $("glClub").addEventListener("change", glLoadTeams);
+  $("glClub").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); glLoadTeams(); } });
+  $("glTeamQuick").addEventListener("click", (e) => {
+    const q = e.target.dataset.glq; if (!q) return;
+    $("glTeamList").querySelectorAll('input[data-gli]:not(:disabled)').forEach(cb => { cb.checked = q === "all"; });
+    updateGlAdd();
+  });
+  $("glAdd").addEventListener("click", followGlTeams);
   $("ecLeague").addEventListener("change", () => {
     resetEc("Conf"); const lg = ecState.leagues.find(l => l.key === $("ecLeague").value);
     if (!lg) return; ecState.org = lg.org; ecState.season = lg.season; ecState.hasFlights = lg.hasFlights;
