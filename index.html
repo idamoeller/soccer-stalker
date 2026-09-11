@@ -1123,6 +1123,7 @@
     renderTeamFilter();
     renderMatchOptions();
     renderSuggestions();
+    backfillEcnlLogos();   // self-heal any missing ECNL shields (best-effort, async)
   }
 
   async function saveTeamOrder() {
@@ -2225,17 +2226,37 @@
   // ECNL teams carry no logo from TGS (its schedule images are coach photos), so
   // borrow a club shield from gotSport: best-effort, stored on the ECNL row so
   // teamLogo() picks it up. A precise shield replaces it if the user links a twin.
-  async function ecnlSetLogoFromGotsport(ecnlTeamId, query, age, gender) {
+  // Look up a gotSport club shield for an ECNL team and store it on the row.
+  // Returns true if it set a logo. (No re-render here — the caller decides.)
+  async function ecnlLookupAndSetLogo(ecnlTeamId, query, age, gender) {
+    if (!query || !age) return false;
     try {
-      if (!query) return;
       const { teams } = await gsQueryTeams(query, gender || "f", age);
       const best = rankGsForLink(teams, query)[0];
       if (best && best.logo) {
         await sb.from("followed_teams").update({ logo: best.logo })
           .eq("team_id", ecnlTeamId).eq("user_id", user.id);
-        loadTeams();
+        return true;
       }
     } catch (e) { /* shield is best-effort; a monogram is a fine fallback */ }
+    return false;
+  }
+  async function ecnlSetLogoFromGotsport(ecnlTeamId, query, age, gender) {
+    if (await ecnlLookupAndSetLogo(ecnlTeamId, query, age, gender)) loadTeams();
+  }
+  // One-time (per session) self-heal: ECNL follows added before shields existed —
+  // or whose follow-time lookup missed — carry no logo. Fill them from gotSport the
+  // same way, then refresh the teams list + game bands once.
+  const ecnlLogoTried = new Set();
+  async function backfillEcnlLogos() {
+    const todo = teamsCache.filter(t =>
+      (t.source === "ecnl" || String(t.team_id).startsWith("ecnl-")) &&
+      !t.logo && t.age && !ecnlLogoTried.has(String(t.team_id)));
+    if (!todo.length) return;
+    todo.forEach(t => ecnlLogoTried.add(String(t.team_id)));
+    const set = await Promise.all(todo.map(t =>
+      ecnlLookupAndSetLogo(String(t.team_id), ecClubQuery(t.name) || t.name, sgAgeNum(t.age), t.gender || "f")));
+    if (set.some(Boolean)) { await loadTeams(); renderGames(); }
   }
   $("gsSearch").addEventListener("click", gsSearch);
   $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
