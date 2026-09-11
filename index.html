@@ -95,6 +95,8 @@
   .team .info{flex:1;min-width:0;}
   .team .name{font-size:16px;font-weight:500;letter-spacing:-.005em;color:var(--ink);line-height:1.25;}
   .team .tid{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted-2);margin-top:2px;}
+  .team--child{padding-left:30px;border-left:2px solid var(--rule);margin-left:8px;}
+  .team--child .childtick{flex:none;width:16px;text-align:center;color:var(--muted-2);font-size:15px;}
   .xbtn{background:none;border:0;padding:2px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--faint);flex:none;cursor:pointer;}
   .xbtn:hover{color:var(--loss);}
@@ -1077,6 +1079,7 @@
     teamsCache.sort((a, b) => ids.indexOf(String(a.team_id)) - ids.indexOf(String(b.team_id)));
     renderTeamFilter();
     renderGames();
+    setTimeout(renderTeams, 0);   // re-nest linked teams under their primary after a drag
     try {
       await Promise.all(ids.map((id, i) =>
         sb.from("followed_teams").update({ position: i }).eq("team_id", id).eq("user_id", user.id)));
@@ -1141,10 +1144,28 @@
   function renderTeams() {
     const el = $("teams");
     if (!teamsCache.length) { el.innerHTML = '<div class="empty">No teams yet.<br>Add one from the main screen.</div>'; return; }
-    el.innerHTML = teamsCache.map(t => {
+    // Order the list so each group's primary comes first with its linked teams
+    // indented right under it. Groups are ordered by the primary's own position.
+    const idxOf = new Map(teamsCache.map((t, i) => [String(t.team_id), i]));
+    const keys = [...new Set(teamsCache.map(t => groupKeyOf(t)))].sort((a, b) => {
+      const pa = groupPrimary(a), pb = groupPrimary(b);
+      const ia = pa ? idxOf.get(String(pa.team_id)) : Math.min(...groupMembers(a).map(m => idxOf.get(String(m.team_id))));
+      const ib = pb ? idxOf.get(String(pb.team_id)) : Math.min(...groupMembers(b).map(m => idxOf.get(String(m.team_id))));
+      return ia - ib;
+    });
+    const ordered = [];
+    for (const k of keys) {
+      const members = groupMembers(k);
+      const prim = groupPrimary(k) || members[0];
+      if (!prim) continue;
+      ordered.push({ t: prim, child: false });
+      for (const m of members) if (String(m.team_id) !== String(prim.team_id)) ordered.push({ t: m, child: true });
+    }
+    el.innerHTML = ordered.map(({ t, child }) => {
       const id = escapeHtml(t.team_id);
+      const cls = "team" + (child ? " team--child" : "");
       if (t.team_id === editingId) {
-        return '<div class="team" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
+        return '<div class="' + cls + '" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
           + '<input class="editin" type="text" value="' + escapeHtml(t.name) + '" data-editinput>'
           + '<button class="mini" data-save="' + id + '">Save</button>'
           + '<button class="mini cancel" data-cancel="1">Cancel</button></div>';
@@ -1154,7 +1175,7 @@
         const myKey = groupKeyOf(t);
         const opts = teamGroups().filter(gr => gr.key !== myKey)
           .map(gr => '<option value="' + escapeHtml(gr.key) + '">' + escapeHtml(groupLabel(gr.key)) + '</option>').join("");
-        return '<div class="team" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
+        return '<div class="' + cls + '" data-id="' + id + '">' + crest(teamLogo(t.team_id), teamRealName(t.team_id) || t.name)
           + '<div class="info"><div class="name">' + escapeHtml(t.name) + '</div>'
           + '<select class="editin linksel" data-linksel>'
           + '<option value="">— same team as… —</option>' + opts + '</select></div>'
@@ -1163,16 +1184,15 @@
       }
       const key = groupKeyOf(t);
       const linked = isLinked(key);
-      const isPrimary = String(t.team_id) === key;
       const real = teamRealName(t.team_id) || t.name;
       const nick = teamSubName(t.team_id);
-      const status = linked
-        ? (isPrimary ? 'Linked · ' + (groupMembers(key).length) + ' teams'
-                     : '↳ linked to ' + escapeHtml(groupLabel(key)))
-        : '';
+      const status = child
+        ? '↳ linked to ' + escapeHtml(groupLabel(key))
+        : (linked ? 'Linked · ' + groupMembers(key).length + ' teams' : '');
       const sub = [nick ? escapeHtml(nick) : '', status].filter(Boolean).join(' · ') || ('ID ' + id);
-      return '<div class="team" data-id="' + id + '">'
-        + '<span class="drag" title="Drag to reorder">⠿</span>' + crest(teamLogo(t.team_id), real)
+      const lead = child ? '<span class="childtick" title="Linked">↳</span>' : '<span class="drag" title="Drag to reorder">⠿</span>';
+      return '<div class="' + cls + '" data-id="' + id + '">'
+        + lead + crest(teamLogo(t.team_id), real)
         + '<div class="info"><div class="name">' + escapeHtml(real) + '</div><div class="tid">' + sub + '</div></div>'
         + '<button class="mini" data-edit="' + id + '">Rename</button>'
         + (linked
@@ -1747,6 +1767,7 @@
       ecMsg("Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games appear on the next sync."), false);
       $("ecNick").value = ""; resetMatch();
       loadTeams(); loadClubs().then(loadGames);
+      ecnlSetLogoFromGotsport("ecnl-" + t.teamId, ecClubQuery(t.name) || t.name, sgAgeNum(ageLabel), "f");
       if (!gkey) {
         maybeFollowNudge({ newId: "ecnl-" + t.teamId, gender: "f", age: sgAgeNum(ageLabel), haystack: t.name || "", state: "" });
         offerGsLink({ key: "ecnl-" + t.teamId, name: nick, age: sgAgeNum(ageLabel), gender: "f", query: ecClubQuery(t.name) || t.name });
@@ -1962,6 +1983,8 @@
     const key = pendingEcLink.key;
     const already = teamsCache.some(x => String(x.team_id) === String(t.teamId));
     try {
+      // give the ECNL row this twin's exact club shield
+      if (t.logo) await sb.from("followed_teams").update({ logo: t.logo }).eq("team_id", key).eq("user_id", user.id);
       if (already) {
         await linkTeams(String(t.teamId), key);          // already followed → just join the group
         finishGsLink("You already follow " + t.name + " — linked it to this team.");
@@ -1994,6 +2017,21 @@
     ecMsg(msg, false);
     closeGsLink();
     loadTeams(); loadGames();
+  }
+  // ECNL teams carry no logo from TGS (its schedule images are coach photos), so
+  // borrow a club shield from gotSport: best-effort, stored on the ECNL row so
+  // teamLogo() picks it up. A precise shield replaces it if the user links a twin.
+  async function ecnlSetLogoFromGotsport(ecnlTeamId, query, age, gender) {
+    try {
+      if (!query) return;
+      const { teams } = await gsQueryTeams(query, gender || "f", age);
+      const best = rankGsForLink(teams, query)[0];
+      if (best && best.logo) {
+        await sb.from("followed_teams").update({ logo: best.logo })
+          .eq("team_id", ecnlTeamId).eq("user_id", user.id);
+        loadTeams();
+      }
+    } catch (e) { /* shield is best-effort; a monogram is a fine fallback */ }
   }
   $("gsLinkBtn").addEventListener("click", gsLinkSearch);
   $("gsLinkQ").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); gsLinkSearch(); } });
