@@ -477,24 +477,50 @@
     <div class="modetabs">
       <button class="modetab on" data-mode="gotsport">gotSport</button>
       <button class="modetab" data-mode="ecnl">ECNL</button>
-      <button class="modetab" data-mode="gl" data-ev="56498" data-lg="GA Aspire">Aspire</button>
-      <button class="modetab" data-mode="gl" data-ev="56497" data-lg="Girls Academy">GA</button>
-      <button class="modetab" data-mode="gl" data-ev="51974" data-lg="DPL">DPL</button>
-      <button class="modetab" data-mode="gl" data-ev="55967" data-lg="NAL">NAL</button>
-      <button class="modetab" data-mode="gl" data-ev="55964" data-lg="NECSL">NECSL</button>
     </div>
 
     <div id="gotsportForm">
-      <div class="gsrow">
-        <label class="field"><span>Gender</span>
-          <select id="gsGender"><option value="">—</option><option value="f">Girls</option><option value="m">Boys</option></select></label>
+      <div class="seg gsmode" id="gsModeToggle">
+        <button type="button" class="on" data-gsmode="search">Search</button>
+        <button type="button" data-gsmode="choose">Choose</button>
+      </div>
+
+      <!-- SEARCH: type a name; results span every league -->
+      <div id="gsSearchPane">
+        <div class="glhint">Girls only. Pick an age, type a club or team name — results span every league.</div>
         <label class="field"><span>Age group</span>
           <select id="gsAge"><option value="">—</option></select></label>
+        <label class="field"><span>Team or club name</span>
+          <input id="gsQuery" type="text" placeholder="e.g. Scorpions" autocomplete="off"></label>
+        <button class="primary" id="gsSearch">Search</button>
       </div>
-      <label class="field"><span>Team or club name</span>
-        <input id="gsQuery" type="text" placeholder="e.g. Scorpions" autocomplete="off"></label>
-      <button class="primary" id="gsSearch">Search</button>
-      <div id="gsResults" class="gsresults"></div>
+
+      <!-- CHOOSE: pick a league, then age + club -->
+      <div id="gsChoosePane" hidden>
+        <div class="glhint">Girls only. Pick a league, an age, then start typing your club.</div>
+        <label class="field"><span>League</span>
+          <select id="glLeague">
+            <option value="">— select —</option>
+            <option value="56498" data-lg="GA Aspire">Aspire</option>
+            <option value="56497" data-lg="Girls Academy">GA</option>
+            <option value="51974" data-lg="DPL">DPL</option>
+            <option value="55967" data-lg="NAL">NAL</option>
+            <option value="55964" data-lg="NECSL">NECSL</option>
+          </select></label>
+        <label class="field"><span>Age group</span>
+          <select id="glAge"><option value="">—</option></select></label>
+        <label class="field"><span>Club</span>
+          <input id="glClub" type="text" list="glClubList" placeholder="start typing your club…" autocomplete="off">
+          <datalist id="glClubList"></datalist></label>
+      </div>
+
+      <!-- shared: both modes feed this checkbox list + follow button -->
+      <div class="field" style="margin-top:6px;"><span>Teams · tick one or more</span>
+        <div class="ecteamquick" id="glTeamQuick" hidden><button type="button" data-glq="all">Select all</button><button type="button" data-glq="none">Clear</button></div>
+        <div class="ecteamlist" id="glTeamList"><div class="ecteamhint">Search or choose above to see teams.</div></div>
+      </div>
+      <button class="primary" id="glAdd" disabled>Follow team</button>
+
       <details class="gsfallback">
         <summary>or paste a team link / ID</summary>
         <label class="field"><span>gotSport team link · or team ID</span>
@@ -521,20 +547,6 @@
       <label class="field"><span>Nickname · optional</span>
         <input id="ecNick" type="text" placeholder="e.g. Ava ECNL" autocomplete="off"></label>
       <button class="primary" id="ecAdd" disabled>Follow team</button>
-    </div>
-
-    <div id="glForm" hidden>
-      <div class="glhint" id="glHint">Girls only — pick an age group, then start typing your club.</div>
-      <label class="field"><span>Age group</span>
-        <select id="glAge"><option value="">—</option></select></label>
-      <label class="field"><span>Club</span>
-        <input id="glClub" type="text" list="glClubList" placeholder="start typing your club…" autocomplete="off">
-        <datalist id="glClubList"></datalist></label>
-      <div class="field"><span>Teams · tick one or more</span>
-        <div class="ecteamquick" id="glTeamQuick" hidden><button type="button" data-glq="all">Select all</button><button type="button" data-glq="none">Clear</button></div>
-        <div class="ecteamlist" id="glTeamList"><div class="ecteamhint">Pick an age and club above to see teams.</div></div>
-      </div>
-      <button class="primary" id="glAdd" disabled>Follow team</button>
     </div>
 
     <div class="matchbox" id="matchBox" hidden>
@@ -1866,28 +1878,28 @@
     const mode = b.dataset.mode;
     $("gotsportForm").hidden = mode !== "gotsport";
     $("ecnlForm").hidden = mode !== "ecnl";
-    $("glForm").hidden = mode !== "gl";
     ecMsg("", false);
     if (mode === "ecnl") ecLoadLeagues();
-    if (mode === "gl") glSelectLeague(b.dataset.ev, b.dataset.lg);
+    if (mode === "gotsport") resetGsMode();
   }));
 
-  // ---------- gotSport league pickers (Aspire / GA / DPL / NAL / NECSL) ----------
-  // Each league is a season-specific gotSport org_event. We list the league's clubs
-  // (server-rendered event page, via the proxy) for the club autocomplete, then
-  // resolve the chosen club+age to followable ranking teams with the same
-  // gotsport-search the app already uses. Girls only.
+  // ---------- gotSport picker: shared Search | Choose engine ----------
+  // Both modes end in the same checkbox list + multi-follow. SEARCH runs a
+  // gotSport-wide name search (spans every league); CHOOSE narrows by league +
+  // age + club. A league is a season-specific gotSport org_event whose club list
+  // (server-rendered, via the proxy) feeds the club autocomplete. Girls only.
   (function fillGlAges() {
     let html = '<option value="">—</option>';
     for (let a = 8; a <= 19; a++) html += '<option value="' + a + '">U' + a + '</option>';
     $("glAge").innerHTML = html;
   })();
-  function glSelectLeague(event, league) {
+  function glSelectLeague() {
+    const sel = $("glLeague"), opt = sel.options[sel.selectedIndex];
+    const event = sel.value, league = opt ? (opt.dataset.lg || opt.textContent.trim()) : "";
     glState = { event, league, clubs: [], teams: [] };
-    $("glHint").textContent = league + " · girls — pick an age group, then start typing your club.";
     $("glAge").value = ""; $("glClub").value = ""; $("glClubList").innerHTML = "";
     clearGlTeams();
-    glLoadClubs();   // fills the club autocomplete; free-typing works even if this fails
+    if (event) glLoadClubs();   // fills the club autocomplete; free-typing works even if this fails
   }
   async function glLoadClubs() {
     try {
@@ -1931,7 +1943,7 @@
   }
   function clearGlTeams() {
     glState.teams = [];
-    $("glTeamList").innerHTML = '<div class="ecteamhint">Pick an age and club above to see teams.</div>';
+    $("glTeamList").innerHTML = '<div class="ecteamhint">Search or choose above to see teams.</div>';
     $("glTeamQuick").hidden = true;
     $("glAdd").disabled = true; $("glAdd").textContent = "Follow team";
   }
@@ -1964,6 +1976,25 @@
     updateGlAdd();
   });
   $("glAdd").addEventListener("click", followGlTeams);
+  $("glLeague").addEventListener("change", glSelectLeague);
+
+  // Search | Choose toggle — both panes feed the one shared checkbox list above.
+  function setGsMode(mode) {
+    document.querySelectorAll("#gsModeToggle button").forEach(x => x.classList.toggle("on", x.dataset.gsmode === mode));
+    $("gsSearchPane").hidden = mode !== "search";
+    $("gsChoosePane").hidden = mode !== "choose";
+    clearGlTeams();
+    ecMsg("", false);
+  }
+  function resetGsMode() {
+    setGsMode("search");
+    $("gsQuery").value = "";
+    $("glLeague").value = ""; $("glAge").value = ""; $("glClub").value = ""; $("glClubList").innerHTML = "";
+    glState = { event: null, league: null, clubs: [], teams: [] };
+  }
+  document.querySelectorAll("#gsModeToggle button").forEach(b =>
+    b.addEventListener("click", () => setGsMode(b.dataset.gsmode)));
+
   $("ecLeague").addEventListener("change", () => {
     resetEc("Conf"); const lg = ecState.leagues.find(l => l.key === $("ecLeague").value);
     if (!lg) return; ecState.org = lg.org; ecState.season = lg.season; ecState.hasFlights = lg.hasFlights;
@@ -2010,7 +2041,6 @@
     for (let a = 8; a <= 19; a++) html += '<option value="' + a + '">U' + a + '</option>';
     $("gsAge").innerHTML = html;
   })();
-  let gsResults = [];
   // Shared gotSport name search. gotSport matches the query as a literal
   // substring, so a multi-word query like "select nal" (expecting "Select … NAL")
   // finds nothing; when that happens, re-search the strongest single word and
@@ -2033,61 +2063,22 @@
     }
     return { teams, pag, note };
   }
+  // SEARCH mode: gotSport-wide name search (spans every league) -> shared checkbox list.
   async function gsSearch() {
-    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = ""; renderFollowNudge(null);
-    const gender = $("gsGender").value, age = $("gsAge").value, q = $("gsQuery").value.trim();
-    if (!gender || !age) { msg.className = "msg err"; msg.textContent = "Pick a gender and age group first."; return; }
-    if (!q) { msg.className = "msg err"; msg.textContent = "Type a team or club name to search."; return; }
-    $("gsResults").innerHTML = '<div class="gshint">Searching…</div>';
+    const age = $("gsAge").value, q = $("gsQuery").value.trim();
+    ecMsg("", false); renderFollowNudge(null);
+    if (!age) { ecMsg("Pick an age group first.", true); return; }
+    if (!q) { ecMsg("Type a team or club name to search.", true); return; }
+    $("glTeamList").innerHTML = '<div class="ecteamhint">Searching…</div>';
+    $("glTeamQuick").hidden = true; $("glAdd").disabled = true;
     $("gsSearch").disabled = true;
     try {
-      const { teams, pag, note } = await gsQueryTeams(q, gender, age);
-      gsResults = teams;
-      renderGsResults(pag, note);
-    } catch (e) { $("gsResults").innerHTML = ""; msg.className = "msg err"; msg.textContent = errmsg(e); }
+      const { teams } = await gsQueryTeams(q, "f", age);   // girls only
+      glState.teams = teams || [];
+      renderGlTeams();
+      if (!glState.teams.length) $("glTeamList").innerHTML = '<div class="ecteamhint">No teams found — try just the club name (one word), e.g. “Select”. Girls, age U' + age + ' only.</div>';
+    } catch (e) { $("glTeamList").innerHTML = '<div class="ecteamhint">' + escapeHtml(errmsg(e)) + '</div>'; }
     finally { $("gsSearch").disabled = false; }
-  }
-  function renderGsResults(pg, note) {
-    const el = $("gsResults");
-    if (!gsResults.length) { el.innerHTML = '<div class="gshint">No teams found — try just the club name (one word), e.g. “Select”. Results are limited to the gender + age you picked.</div>'; return; }
-    const noteHtml = note ? '<div class="gshint">' + escapeHtml(note) + '</div>' : '';
-    let html = noteHtml + gsResults.map((t, i) => {
-      const following = teamsCache.some(x => String(x.team_id) === String(t.teamId));
-      const meta = [t.clubName, t.state].filter(Boolean).join(" · ");
-      return '<button class="gsitem" data-i="' + i + '"' + (following ? ' disabled' : '') + '>'
-        + crest(t.logo, t.name)
-        + '<div class="info"><div class="gn">' + escapeHtml(t.name) + '</div>'
-        + (meta ? '<div class="gm">' + escapeHtml(meta) + '</div>' : '') + '</div>'
-        + '<span class="plus">' + (following ? 'following' : '+ follow') + '</span></button>';
-    }).join("");
-    const total = pg && pg.total_count;
-    if (total && total > gsResults.length) html += '<div class="gshint">Showing ' + gsResults.length + ' of ' + total + ' — refine the name to narrow it down.</div>';
-    el.innerHTML = html;
-    el.querySelectorAll(".gsitem").forEach(b => b.addEventListener("click", () => followGotsport(gsResults[+b.dataset.i])));
-  }
-  async function followGotsport(t) {
-    if (!t) return;
-    const msg = $("addMsg"); msg.className = "msg"; msg.textContent = ""; renderFollowNudge(null);
-    if (teamsCache.some(x => String(x.team_id) === String(t.teamId))) {
-      msg.className = "msg err"; msg.textContent = "You already follow that team."; return;
-    }
-    try {
-      const gkey = pendingMatchKey();
-      const { error } = await sb.from("followed_teams")
-        .insert({ team_id: String(t.teamId), name: t.name, user_id: user.id, source: "gotsport", group_id: gkey });
-      if (error) throw error;
-      msg.className = "msg ok";
-      msg.textContent = "Following " + t.name + (gkey ? " — linked to " + groupLabel(gkey) + "." : " — games fill in on the next sync.");
-      resetMatch();
-      await loadTeams(); renderGsResults(); loadGames();
-      if (!gkey) maybeFollowNudge({
-        newId: String(t.teamId),
-        gender: sgGenderCh(t.gender || $("gsGender").value),
-        age: sgAgeNum(t.age != null ? t.age : $("gsAge").value),
-        haystack: (t.clubName || "") + " " + (t.name || ""),
-        state: t.state || ""
-      });
-    } catch (e) { msg.className = "msg err"; msg.textContent = friendlyError(e); }
   }
   // ---- after adding ECNL team(s): batched review to find + link each gotSport twin (live scores) --
   let gsBatch = [];   // rows: { key,name,age,gender,query, cands:[], chosen, on, status, open }
