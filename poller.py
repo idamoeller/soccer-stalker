@@ -55,6 +55,31 @@ SB_HEADERS = {
     "Content-Type": "application/json",
 }
 
+# One shared HTTP session with automatic retry + backoff. A scheduled run hits
+# three external services (Supabase, gotSport, ECNL); a single transient blip on
+# any of them -- a connection reset, a timeout, a 5xx, or gotSport's occasional
+# bot-challenge from GitHub's datacenter IP -- used to raise and fail the whole
+# run (and email a red X). Retrying transient failures a few times with backoff
+# makes those self-heal; a genuinely persistent error (e.g. a 4xx auth problem)
+# still surfaces via raise_for_status(). urllib3 ships with requests -> no new dep.
+from requests.adapters import HTTPAdapter   # noqa: E402
+_RETRY_KW = dict(total=4, connect=4, read=4, backoff_factor=1.5,
+                 status_forcelist=(429, 500, 502, 503, 504), raise_on_status=False)
+try:
+    from urllib3.util.retry import Retry
+    try:
+        _retry = Retry(allowed_methods=frozenset(["GET", "POST"]), **_RETRY_KW)
+    except TypeError:                        # older urllib3 spelled it method_whitelist
+        _retry = Retry(method_whitelist=frozenset(["GET", "POST"]), **_RETRY_KW)
+except Exception:
+    _retry = None
+
+HTTP = requests.Session()
+if _retry is not None:
+    _adapter = HTTPAdapter(max_retries=_retry)
+    HTTP.mount("https://", _adapter)
+    HTTP.mount("http://", _adapter)
+
 # ---- Smart scheduling -------------------------------------------------------
 # The cron fires often, but each run pulls only the teams that actually need it:
 #   * a team with a live/unscored game within [-2h, +18h] of kickoff -> polled
@@ -83,7 +108,7 @@ def pending_score_teams(back_hours, ahead_hours):
     now = datetime.now(timezone.utc)
     lo = (now - timedelta(hours=back_hours)).isoformat()
     hi = (now + timedelta(hours=ahead_hours)).isoformat()
-    r = requests.get(
+    r = HTTP.get(
         f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
         params={"select": "team_id",
                 "and": f"(match_time.gte.{lo},match_time.lte.{hi},team_score.is.null)"},
@@ -97,7 +122,7 @@ def teams_missing_games(team_ids):
     """Followed teams that have no games stored yet (just added -> pull now)."""
     if not team_ids:
         return []
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+    r = HTTP.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
                      params={"select": "team_id"}, timeout=30)
     r.raise_for_status()
     have = {str(row["team_id"]) for row in r.json()}
@@ -136,7 +161,7 @@ def plan_sync(team_ids):
 
 def get_followed_teams():
     """All followed teams across ALL users (secret key bypasses RLS)."""
-    r = requests.get(
+    r = HTTP.get(
         f"{SUPABASE_URL}/rest/v1/followed_teams",
         headers=SB_HEADERS,
         params={"select": "team_id,name,source,ecnl_org,ecnl_conf,ecnl_club,ecnl_team"},
@@ -162,7 +187,7 @@ def fetch_matches(team_id):
     )
     for q in queries:
         try:
-            r = requests.get(
+            r = HTTP.get(
                 f"{GOTSPORT}/api/v1/teams/{team_id}/matches",
                 params={**q, "page": 1, "per_page": 100},
                 headers=GS_HEADERS,
@@ -228,7 +253,7 @@ def to_row(team_id, m):
 def upsert_games(rows):
     if not rows:
         return
-    r = requests.post(
+    r = HTTP.post(
         f"{SUPABASE_URL}/rest/v1/games",
         headers={**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
         params={"on_conflict": "match_id,team_id"},
@@ -254,7 +279,7 @@ def _clean_coaches(names):
 
 def fetch_club(team_id):
     try:
-        r = requests.get(f"{GOTSPORT}/api/v1/team_ranking_data/team_details",
+        r = HTTP.get(f"{GOTSPORT}/api/v1/team_ranking_data/team_details",
                          params={"team_id": team_id}, headers=GS_HEADERS, timeout=20)
         r.raise_for_status()
         d = r.json()
@@ -278,7 +303,7 @@ def sync_clubs(rows):
         if r.get("opponent_id"): ids.add(str(r["opponent_id"]))
     have = set()
     try:
-        resp = requests.get(f"{SUPABASE_URL}/rest/v1/clubs", headers=SB_HEADERS,
+        resp = HTTP.get(f"{SUPABASE_URL}/rest/v1/clubs", headers=SB_HEADERS,
                             params={"select": "team_id,coach_names"}, timeout=30)
         resp.raise_for_status()
         # A row counts as cached only once it carries the enriched fields
@@ -297,7 +322,7 @@ def sync_clubs(rows):
             club_rows.append(c)
         time.sleep(0.15)
     for k in range(0, len(club_rows), 200):
-        rr = requests.post(f"{SUPABASE_URL}/rest/v1/clubs",
+        rr = HTTP.post(f"{SUPABASE_URL}/rest/v1/clubs",
                            headers={**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
                            params={"on_conflict": "team_id"}, json=club_rows[k:k + 200], timeout=60)
         if not rr.ok:
@@ -354,7 +379,7 @@ def build_ecnl_rows(t):
     org, conf, club, team = t["ecnl_org"], t["ecnl_conf"], t["ecnl_club"], t["ecnl_team"]
     league = ECNL_LEAGUE.get(org, "ECNL")
     tname = t.get("name") or f"Team {team}"
-    r = requests.get(f"{ATHLETEONE}/get-individual-team-info/{org}/{conf}/{club}/{team}",
+    r = HTTP.get(f"{ATHLETEONE}/get-individual-team-info/{org}/{conf}/{club}/{team}",
                      headers=ECNL_HEADERS, timeout=30)
     r.raise_for_status()
     out = {}
