@@ -91,6 +91,14 @@ function unesc(s: string): string { return s.replace(/&amp;/g, "&").replace(/&#3
 function ecnlDate(s: string): string | null { const m = s.match(/([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/); return m ? `${m[3]}-${MONTHS[m[1]] || "01"}-${String(m[2]).padStart(2, "0")}` : null; }
 function ecnlTime24(s: string): string | null { if (!s || s.trim() === "12:00 AM") return null; const m = s.match(/(\d{1,2}):(\d{2})\s*([AP]M)/); if (!m) return null; let h = Number(m[1]) % 12; if (m[3] === "PM") h += 12; return `${String(h).padStart(2, "0")}:${m[2]}:00`; }
 function splitVenue(v: string | null): [string | null, string | null] { if (!v) return [null, null]; const i = v.lastIndexOf(" - "); return i >= 0 ? [v.slice(0, i).trim(), v.slice(i + 3).trim()] : [v.trim(), null]; }
+// A played game's score is shown from the followed team's perspective ("us - them")
+// next to a Win/Loss/Tie icon; the icon self-corrects a row rendered home-away.
+function ecnlOrient(result: string | null, ts: number | null, os: number | null): [number | null, number | null] {
+  if (ts == null || os == null) return [ts, os];
+  const r = result || "";
+  if ((r.includes("win") && ts < os) || (r.includes("los") && ts > os)) return [os, ts];
+  return [ts, os];
+}
 function parseEcnlGames(html: string, teamId: string): any[] {
   const games: any[] = [];
   for (const m of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
@@ -104,7 +112,10 @@ function parseEcnlGames(html: string, teamId: string): any[] {
     const ven = row.match(/game-complex-item[^>]*>([\s\S]*?)<\/span>/);
     let vt = ven ? ven[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
     if (vt === "-") vt = "";
-    games.push({ matchId: mid[1], home: ha ? ha[1] === "H" : null, date: date ? date[1] : null, time: tm ? tm[1] : null, opp: unesc(opp[3]).trim(), oppTeam: opp[2], venue: vt });
+    // Played game: result icon + "us - them" score. Unplayed: a "Preview" link, no score.
+    const sc = row.match(/\/score\/(\w+?)_Icon\.png[^>]*\/>\s*<span>\s*(\d+)\s*-\s*(\d+)\s*<\/span>/);
+    games.push({ matchId: mid[1], home: ha ? ha[1] === "H" : null, date: date ? date[1] : null, time: tm ? tm[1] : null, opp: unesc(opp[3]).trim(), oppTeam: opp[2], venue: vt,
+      result: sc ? sc[1].toLowerCase() : null, teamScore: sc ? Number(sc[2]) : null, oppScore: sc ? Number(sc[3]) : null });
   }
   return games;
 }
@@ -118,10 +129,11 @@ async function buildEcnlRows(t: any): Promise<any[]> {
     const md = g.date ? ecnlDate(g.date) : null;
     const t24 = g.time ? ecnlTime24(g.time) : null;
     const [vn, fn] = splitVenue(g.venue);
+    const [ts, os] = ecnlOrient(g.result, g.teamScore, g.oppScore);
     const row = {
       match_id: Number(g.matchId), team_id: "ecnl-" + team, team_name: t.name || ("Team " + team),
-      team_logo: null, team_score: null, opponent_id: "ecnl-" + g.oppTeam, opponent_name: g.opp,
-      opponent_logo: null, opponent_score: null, is_home: g.home,
+      team_logo: null, team_score: ts, opponent_id: "ecnl-" + g.oppTeam, opponent_name: g.opp,
+      opponent_logo: null, opponent_score: os, is_home: g.home,
       match_time: (md && t24) ? `${md}T${t24}` : null, match_date: md,
       venue_name: vn, venue_address: null, field_name: fn,
       event_id: null, event_name: league, division_name: null, match_number: Number(g.matchId),

@@ -352,6 +352,18 @@ def _split_venue(v):
     return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (v.strip(), None)
 
 
+def _ecnl_orient(result, ts, os_):
+    """A played game's score is shown from the followed team's perspective
+    ("us - them") next to a Win/Loss/Tie icon. The icon self-corrects a row
+    that ever renders the other way round (home-away)."""
+    if ts is None or os_ is None:
+        return ts, os_
+    r = result or ""
+    if ("win" in r and ts < os_) or ("los" in r and ts > os_):
+        return os_, ts
+    return ts, os_
+
+
 def parse_ecnl_games(html, team_id):
     """Parse a team's games from get-individual-team-info HTML (the opponent is
     the `individual-team-item` span; the followed team is implicit)."""
@@ -367,10 +379,16 @@ def parse_ecnl_games(html, team_id):
         tm = re.search(r'padding:\s*5px 0px;">\s*(\d{1,2}:\d{2}\s*[AP]M)', row)
         ven = re.search(r"game-complex-item[^>]*>(.*?)</span>", row, re.S)
         vt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", ven.group(1))).strip() if ven else ""
+        # A played game renders a result icon + "us - them" score; an unplayed
+        # one renders a "Preview" link and no score.
+        sc = re.search(r"/score/(\w+?)_Icon\.png[^>]*/>\s*<span>\s*(\d+)\s*-\s*(\d+)\s*</span>", row)
         games.append({"match_id": mid.group(1), "home": (ha.group(1) == "H") if ha else None,
                       "date": date.group(1) if date else None, "time": tm.group(1) if tm else None,
                       "opp": unescape(opp.group(3)).strip(), "opp_team": opp.group(2),
-                      "venue": "" if vt == "-" else vt})
+                      "venue": "" if vt == "-" else vt,
+                      "result": sc.group(1).lower() if sc else None,
+                      "team_score": int(sc.group(2)) if sc else None,
+                      "opp_score": int(sc.group(3)) if sc else None})
     return games
 
 
@@ -387,11 +405,12 @@ def build_ecnl_rows(t):
         md = _ecnl_date(g["date"])
         t24 = _ecnl_time24(g["time"]) if g["time"] else None
         vn, fn = _split_venue(g["venue"])
+        ts, os_ = _ecnl_orient(g.get("result"), g.get("team_score"), g.get("opp_score"))
         row = {
             "match_id": int(g["match_id"]), "team_id": "ecnl-" + str(team),
-            "team_name": tname, "team_logo": None, "team_score": None,
+            "team_name": tname, "team_logo": None, "team_score": ts,
             "opponent_id": "ecnl-" + g["opp_team"], "opponent_name": g["opp"],
-            "opponent_logo": None, "opponent_score": None, "is_home": g["home"],
+            "opponent_logo": None, "opponent_score": os_, "is_home": g["home"],
             "match_time": (f"{md}T{t24}" if md and t24 else None), "match_date": md,
             "venue_name": vn, "venue_address": None, "field_name": fn,
             "event_id": None, "event_name": league, "division_name": None,
