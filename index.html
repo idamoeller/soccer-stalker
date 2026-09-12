@@ -151,8 +151,8 @@
   .gme .gtname{font-weight:600;}
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:500;
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:8px;padding-right:8px;}
-  .gsched .g-event{max-width:160px;font-size:12px;color:var(--ink-2);line-height:1.25;}
-  .gsched .g-flight{max-width:130px;font-size:12px;color:var(--muted-2);line-height:1.25;}
+  .gsched .g-event{max-width:230px;font-size:12px;color:var(--ink-2);line-height:1.25;}
+  .gsched .ge-flight{font-size:11px;color:var(--muted-2);line-height:1.2;margin-top:2px;}
   .gsched .lrow{cursor:pointer;}
   .gsched .lrow:hover td{background:#f7f7f4;}
   /* day separator: one full-width heading row per day, so each day reads as a block */
@@ -185,16 +185,15 @@
     .gsched .gtname{font-size:12px;}
     .gsched .g-score{font-size:12px;}
     .gsched .g-event{font-size:11px;}
-    .gsched .g-flight{font-size:11px;}
+    .gsched .ge-flight{font-size:10px;}
     .gsched tr.gday td{padding:15px 0 5px;}
     .gday-c{font-size:9.5px;}
   }
   /* on a wide screen let the combined schedule spill a bit past the 900px column */
   @media (min-width:1000px){
-    #games .gscroll{--gw:min(1140px, calc(100vw - 56px));width:var(--gw);margin-left:calc(50% - var(--gw)/2);}
+    #games .gscroll{--gw:min(1040px, calc(100vw - 56px));width:var(--gw);margin-left:calc(50% - var(--gw)/2);}
     .gsched .g-team{max-width:270px;}
-    .gsched .g-event{max-width:250px;}
-    .gsched .g-flight{max-width:200px;}
+    .gsched .g-event{max-width:340px;}
   }
 
   /* expanded: reskinned cards */
@@ -1529,8 +1528,10 @@
       + '<td class="g-team">' + teamCell(A) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
       + '<td class="g-team">' + teamCell(B) + '</td>'
-      + '<td class="g-event">' + escapeHtml(g.event_name || "") + '</td>'
-      + '<td class="g-flight">' + escapeHtml(g.division_name || "") + '</td>'
+      + '<td class="g-event">'
+        + (g.event_name ? '<div class="ge-name">' + escapeHtml(g.event_name) + '</div>' : "")
+        + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
+        + '</td>'
       + '</tr>';
   }
   // combined view groups games into day blocks: a full-width date header, then
@@ -1549,14 +1550,14 @@
       const k = dayKey(g);
       if (k !== curDay) {
         curDay = k;
-        body += '<tr class="gday"><td class="gday-c" colspan="6">' + escapeHtml(dayHeading(g)) + '</td></tr>';
+        body += '<tr class="gday"><td class="gday-c" colspan="5">' + escapeHtml(dayHeading(g)) + '</td></tr>';
       }
       body += gschedRow(g);
     }
     return '<div class="gscroll"><table class="gsched"><thead><tr>'
       + '<th class="g-date">Time</th><th class="g-team">Team A</th>'
       + '<th class="g-score">Score</th><th class="g-team">Team B</th>'
-      + '<th class="g-event">Event</th><th class="g-flight">Flight / Bracket</th>'
+      + '<th class="g-event">Event</th>'
       + '</tr></thead><tbody>'
       + body
       + '</tbody></table></div>';
