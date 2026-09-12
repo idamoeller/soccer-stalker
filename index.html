@@ -145,6 +145,7 @@
   .gsched td{padding:10px 12px 10px 0;border-bottom:1px solid var(--rule-soft);vertical-align:middle;}
   .gsched .g-date{white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
   .gsched .g-date .dtime{color:var(--muted-2);margin-left:6px;}
+  .gsched .ttbd{color:var(--faint);}   /* time not posted yet (e.g. ECNL fixture not finalized) */
   .gsched .g-team{min-width:140px;max-width:180px;}
   .gteam{display:flex;align-items:center;gap:8px;}
   .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;}
@@ -1535,12 +1536,14 @@
       B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
       as_ = g.opponent_score; bs = g.team_score;
     }
-    const timeCell = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
+    const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
+    // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
+    const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
     const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '">'
       + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
-      + '<td class="g-date">' + escapeHtml(timeCell) + '</td>'
+      + '<td class="g-date">' + timeCell + '</td>'
       + '<td class="g-team">' + teamCell(A) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
       + '<td class="g-team">' + teamCell(B) + '</td>'
