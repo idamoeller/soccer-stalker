@@ -1415,10 +1415,19 @@
     const gender = isG && !isB ? "f" : (isB && !isG ? "m" : null);
     return (age && gender) ? { age, gender } : null;
   }
+  // ECNL/TGS has no shareable deep link to a conference/age/game — its schedule &
+  // standings pages are client-side widgets whose URL never changes. Best we can do
+  // is the right league's conference-schedule page (one Conference+Age pick away).
+  function ecnlScheduleUrl(g) {
+    const lg = (g.event_name || "").toLowerCase();
+    if (lg.includes("rl")) return "https://theecnl.com/sports/2023/8/8/ECNLRLG_0808235356.aspx";    // ECNL RL Girls
+    if (lg.includes("pre")) return "https://theecnl.com/sports/2023/8/8/Pre-ECNLG_0808230711.aspx"; // Pre-ECNL Girls
+    return "https://theecnl.com/sports/2023/8/8/ECNLG_0808235238.aspx";                             // ECNL Girls
+  }
   // Link each game back to the most specific gotSport page we can build.
   function gameUrl(g) {
     const id = String(g.team_id || "");
-    if (id.startsWith("ecnl-")) return "https://www.theecnl.com/";   // TGS has no shareable per-team URL
+    if (id.startsWith("ecnl-")) return ecnlScheduleUrl(g);   // TGS has no per-game deep link (see above)
     if (g.event_id) {
       const base = "https://system.gotsport.com/org_event/events/" + g.event_id + "/schedules";
       const grp = groupMap[String(g.event_id) + "|" + (g.division_name || "")];
