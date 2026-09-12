@@ -147,11 +147,17 @@
   .gsched .g-date .dtime{color:var(--muted-2);margin-left:6px;}
   .gsched .ttbd{color:var(--faint);}   /* time not posted yet (e.g. ECNL fixture not finalized) */
   .gsched .g-team{min-width:140px;max-width:180px;}
+  /* home team hugs the score from the left, away from the right, so the score reads centered between them */
+  .gsched td.g-home{text-align:right;}
+  .gsched td.g-home .gteam{justify-content:flex-end;}
   .gteam{display:flex;align-items:center;gap:8px;}
   .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;font-family:var(--sans);text-transform:none;letter-spacing:0;}
-  .gme .gtname{font-weight:600;}
+  .gsched .gwin .gtname{font-weight:700;}   /* bold the winner */
+  .gstar{flex:none;color:var(--draw);font-size:11px;line-height:1;}   /* marks the team you follow */
+  /* subtle gridlines frame the score so it sits as a centered column between the teams */
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--sans);font-size:12.5px;font-weight:500;
-    color:var(--ink);font-variant-numeric:tabular-nums;padding-left:8px;padding-right:8px;}
+    color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;
+    border-left:1px solid var(--rule-soft);border-right:1px solid var(--rule-soft);}
   .gsched .g-event{max-width:180px;font-size:12px;color:var(--ink-2);line-height:1.25;}
   .gsched .ge-flight{font-size:11px;color:var(--muted-2);line-height:1.2;margin-top:2px;}
   .gsched .lrow{cursor:pointer;}
@@ -1549,14 +1555,19 @@
     const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
     const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
-    const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '">'
-      + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
+    // bold the winner; mark the team you follow with a star (not bold)
+    let aWin = false, bWin = false;
+    if (done) { if (as_ > bs) aWin = true; else if (bs > as_) bWin = true; }
+    const star = '<span class="gstar" title="Team you follow" aria-label="team you follow">★</span>';
+    const teamCell = (t, win) => '<div class="gteam' + (win ? ' gwin' : '') + '">'
+      + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span>'
+      + (t.me ? star : '') + '</div>';
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
       + '<td class="g-date">' + timeCell + '</td>'
-      + '<td class="g-team">' + teamCell(A) + '</td>'
+      + '<td class="g-team g-home">' + teamCell(A, aWin) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
-      + '<td class="g-team">' + teamCell(B) + '</td>'
+      + '<td class="g-team g-away">' + teamCell(B, bWin) + '</td>'
       + '<td class="g-event">'
         + (g.event_name ? '<div class="ge-name" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
         + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
@@ -1584,8 +1595,8 @@
       body += gschedRow(g);
     }
     return '<div class="gscroll"><table class="gsched"><thead><tr>'
-      + '<th class="g-date">Time</th><th class="g-team">Team A</th>'
-      + '<th class="g-score">Score</th><th class="g-team">Team B</th>'
+      + '<th class="g-date">Time</th><th class="g-team g-home"></th>'
+      + '<th class="g-score">Score</th><th class="g-team g-away"></th>'
       + '<th class="g-event">Event</th>'
       + '</tr></thead><tbody>'
       + body
