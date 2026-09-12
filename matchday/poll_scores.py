@@ -17,7 +17,8 @@ team's score changes it updates the `games` table and fires an ntfy push.
 Config (.env in this folder): SUPABASE_URL, SUPABASE_KEY (the sb_secret_ key),
 NTFY_TOPIC. Tunables: LOOKBACK_HOURS, LOOKAHEAD_HOURS.
 
-Scope: gotSport only. ECNL/RL live scores are a separate site (later).
+Scope: gotSport (via the cookie'd schedule pages) + ECNL/RL (via athleteone, no
+cookie needed; see poll_ecnl). Both patch the games table and fire an ntfy push.
 """
 import argparse
 import hashlib
@@ -660,11 +661,100 @@ def maybe_harvest_group_map(cookies):
 
 
 # --------------------------------------------------------------------------- #
+# ECNL (TotalGlobalSports / athleteone) -- a separate site from gotSport.
+# The cloud poller reads the same feed, but because ECNL games carry no kickoff
+# time it only refreshes them once a day; polling here every few minutes is what
+# makes an ECNL score alert land promptly. No cookie needed (plain JSON-ish API),
+# and the score parser is reused from poller.py so there's one source of truth.
+# --------------------------------------------------------------------------- #
+ECNL_SCHEDULE_URL = {   # tap-to-open target per league (TGS has no per-game deep link)
+    "ECNL": "https://theecnl.com/sports/2023/8/8/ECNLG_0808235238.aspx",
+    "ECNL RL": "https://theecnl.com/sports/2023/8/8/ECNLRLG_0808235356.aspx",
+    "Pre-ECNL": "https://theecnl.com/sports/2023/8/8/Pre-ECNLG_0808230711.aspx",
+}
+
+
+def ecnl_click(game):
+    return ECNL_SCHEDULE_URL.get(game.get("event_name") or "ECNL", ECNL_SCHEDULE_URL["ECNL"])
+
+
+def poll_ecnl(force=False):
+    """Score followed ECNL teams straight off athleteone and push on a change.
+    Returns the number of score updates made. Fully self-contained (own Supabase
+    reads, own fetch via poller.build_ecnl_rows, own patch + notify) and never
+    raises -- an ECNL hiccup must not take down the gotSport run."""
+    try:
+        teams = [t for t in sb_get("followed_teams",
+                     {"select": "name,ecnl_org,ecnl_conf,ecnl_club,ecnl_team", "source": "eq.ecnl"},
+                     required=False) if t.get("ecnl_team")]
+        if not teams:
+            return 0
+
+        # Gate: only hit athleteone when a followed ECNL team has an unscored game
+        # dated today or yesterday (keeps the every-few-min run cheap off game-days;
+        # yesterday covers a score that posts after midnight). --force checks all.
+        if not force:
+            today = datetime.now().strftime("%Y-%m-%d")
+            yest = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            pend = sb_get("games", {"select": "team_id", "source": "eq.ecnl",
+                                    "match_date": f"in.({yest},{today})", "team_score": "is.null"},
+                          required=False)
+            want = {str(r["team_id"]) for r in pend}
+            teams = [t for t in teams if f"ecnl-{t['ecnl_team']}" in want]
+            if not teams:
+                return 0
+
+        root = os.path.dirname(HERE)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        try:
+            import poller
+        except Exception as e:
+            print(f"  ECNL: poller module unavailable ({e}); skipping.")
+            return 0
+
+        stored = {(str(g["match_id"]), str(g["team_id"])): g
+                  for g in sb_get("games", {"select": GAME_FIELDS, "source": "eq.ecnl"}, required=False)}
+
+        changed = 0
+        print(f"ECNL: checking {len(teams)} team feed(s).")
+        for t in teams:
+            try:
+                rows = poller.build_ecnl_rows(t)
+            except Exception as e:
+                print(f"  ! ECNL team {t.get('ecnl_team')} ({t.get('name')}): {e}")
+                continue
+            for r in rows:
+                ts, os_ = r.get("team_score"), r.get("opponent_score")
+                if ts is None or os_ is None:
+                    continue                                   # not played / no score yet
+                g = stored.get((str(r["match_id"]), str(r["team_id"])))
+                if g and ts == g.get("team_score") and os_ == g.get("opponent_score"):
+                    continue                                   # already recorded -> no duplicate push
+                info = g or {"team_name": r["team_name"], "opponent_name": r["opponent_name"],
+                             "event_name": r.get("event_name"), "division_name": None, "event_id": None}
+                print(f"    ECNL {info['team_name']} "
+                      f"{g.get('team_score') if g else None}-{g.get('opponent_score') if g else None}"
+                      f" -> {ts}-{os_} vs {info['opponent_name']}")
+                patch_score(r["match_id"], r["team_id"], ts, os_)
+                notify(info, ts, os_, None, click_url=ecnl_click(info))
+                changed += 1
+            time.sleep(0.3)                                    # be polite to athleteone
+        return changed
+    except Exception as e:
+        print(f"  ECNL polling error: {e}")
+        return 0
+
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 def run(force=False):
     if not SUPABASE_URL or not SUPABASE_KEY:
         sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
+    # ECNL first: it uses athleteone (no gotSport cookie), so a gotSport cookie
+    # problem in the block below can never suppress an ECNL alert.
+    ecnl_changed = poll_ecnl(force)
     cookies = load_cookies()
     maybe_harvest_group_map(cookies)   # once/day: refresh division->group deep-link map
 
@@ -676,7 +766,7 @@ def run(force=False):
             seen[(g["match_id"], g["team_id"])] = g
         games = list(seen.values())
     if not games:
-        print("No gotSport games in the window right now. Nothing to do.")
+        print(f"No gotSport games in the window right now. (ECNL: {ecnl_changed} update(s).)")
         return
     # We have games to score -> make sure the cookie is fresh enough to read them.
     # (Self-heals a missed 3am refresh; only runs when there's actually work to do.)
@@ -731,7 +821,7 @@ def run(force=False):
             changed += 1
         discovered += discover(parsed, ev, idx, labels)    # add day-of games we don't have yet
         time.sleep(0.4)                                    # be polite to gotSport
-    print(f"Done. {changed} score update(s), {discovered} discovered.")
+    print(f"Done. {changed} gotSport + {ecnl_changed} ECNL score update(s), {discovered} discovered.")
 
 
 def main():
