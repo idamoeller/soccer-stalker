@@ -603,6 +603,7 @@
           <div class="poprow">
             <span class="poplabel">Show</span>
             <div class="seg">
+              <button data-tf="today">Today</button>
               <button data-tf="upcoming">Upcoming</button>
               <button data-tf="past">Past</button>
             </div>
@@ -669,7 +670,7 @@
   let allGames = [];
   let groupMode = "team";                                    // "team" | "combined"
   let viewMode = "compact";                                  // "compact" (ledger) | "expanded" (cards)
-  let timeframe = "upcoming";                                // "upcoming" | "past" (mutually exclusive)
+  let timeframe = "upcoming";                                // "today" | "upcoming" | "past" (mutually exclusive)
   let pastWeeks = 8;                                         // "Past" lookback window, in weeks
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
   function clampWeeks(n) { n = Math.round(Number(n)); return n < 1 ? 1 : (n > 52 ? 52 : n); }
@@ -678,7 +679,7 @@
     if (saved) {
       if (saved.groupMode === "team" || saved.groupMode === "combined") groupMode = saved.groupMode;
       if (saved.viewMode === "expanded" || saved.viewMode === "compact") viewMode = saved.viewMode;
-      if (saved.timeframe === "upcoming" || saved.timeframe === "past") timeframe = saved.timeframe;
+      if (saved.timeframe === "upcoming" || saved.timeframe === "past" || saved.timeframe === "today") timeframe = saved.timeframe;
       if (Number.isFinite(saved.pastWeeks)) pastWeeks = clampWeeks(saved.pastWeeks);
       if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
@@ -1646,6 +1647,15 @@
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return d < today;
   }
+  // "Today" shows every game dated today regardless of whether it's been played,
+  // so a game that already finished this morning and one kicking off tonight both
+  // appear together on the day's card.
+  function isToday(g) {
+    const d = gameDate(g);
+    if (!d) return false;
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  }
 
   function gameRow(g) {
     const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: sideLogo(g.team_logo, g.team_id), score: g.team_score, mine: true };
@@ -1655,7 +1665,7 @@
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
       + (g.venue_name ? " · " + escapeHtml(g.venue_name) : "");
     return '<a class="game" href="' + gameUrl(g) + '" target="_blank" rel="noopener">'
-      + (g.event_name ? '<div class="gevent">' + escapeHtml(g.event_name) + '</div>' : "")
+      + (g.event_name ? '<div class="gevent" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
       + '<div class="scard">' + sideLine(mine, rcls) + sideLine(opp, rcls) + '</div>'
       + '<div class="when">' + meta + '</div></a>';
   }
@@ -1665,16 +1675,23 @@
     const el = $("games");
     const compact = viewMode !== "expanded";   // compact = ledger, expanded = cards
     if (!allGames.length) { el.innerHTML = '<div class="empty">no games synced yet · they appear after the next sync</div>'; gamesShown = 0; updateTfLabel(); return; }
+    const today = timeframe === "today";
     const past = timeframe === "past";
     const cutoff = Date.now() - pastWeeks * 7 * 86400000;    // "Past" lookback horizon
-    const inWindow = g => { if (!past) return true; const d = gameDate(g); return !d || d.getTime() >= cutoff; };
-    const list = allGames.filter(g => !isPlaceholder(g) && !isPhantom(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && isPast(g) === past && inWindow(g)).sort((a, b) => {
+    const inScope = g => {
+      if (today) return isToday(g);                 // all of today's games, played or not
+      if (isPast(g) !== past) return false;         // upcoming vs past
+      if (!past) return true;
+      const d = gameDate(g);                         // past: only within the lookback window
+      return !d || d.getTime() >= cutoff;
+    };
+    const list = allGames.filter(g => !isPlaceholder(g) && !isPhantom(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && inScope(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-      return past ? db - da : da - db;          // past: newest first · upcoming: soonest first
+      return past ? db - da : da - db;          // past: newest first · today/upcoming: soonest first
     });
     gamesShown = list.length;
-    if (!list.length) { el.innerHTML = '<div class="empty">' + (past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
+    if (!list.length) { el.innerHTML = '<div class="empty">' + (today ? 'no games today' : past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
     if (groupMode === "combined") {
       el.innerHTML = compact ? ledgerTable(list, true) : list.map(g => gameRow(g)).join("");
     } else {
@@ -1842,8 +1859,9 @@
     const past = timeframe === "past";
     const pwRow = $("pastWindowRow"); if (pwRow) pwRow.hidden = !past;
     const pw = $("pwWeeks"); if (pw) pw.textContent = pastWeeks;
+    const tfName = timeframe === "today" ? "today" : past ? "past " + pastWeeks + "w" : "upcoming";
     const vb = $("viewSummaryBtn");
-    if (vb) vb.textContent = (past ? "past " + pastWeeks + "w" : "upcoming") + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
+    if (vb) vb.textContent = tfName + " · " + (groupMode === "team" ? "by team" : "combined") + " · " + (viewMode === "expanded" ? "expanded" : "compact");
   }
 
   // A "disc-" row is a scraper-discovered placeholder for a day the lagging feed
