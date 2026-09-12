@@ -56,33 +56,41 @@ SB_HEADERS = {
 }
 
 # ---- Smart scheduling -------------------------------------------------------
-# The cron fires often, but a real gotSport pull only happens when it's worth
-# it: around a known kickoff, once a day to refresh the schedule, or when a
-# newly-followed team has no games yet. Any other run is a couple of tiny
-# Supabase reads and an early exit -- so on a quiet weekday nothing gets polled,
-# and the pulls naturally cluster on game days (usually weekends).
-LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "5"))    # games run long + score-entry lag
+# The cron fires often, but each run pulls only the teams that actually need it:
+#   * a team with a live/unscored game within [-2h, +18h] of kickoff -> polled
+#     every run until its score posts, then it drops out (no more hammering);
+#   * a newly-followed team with no games yet -> one pull to seed it;
+#   * once a day, a full refresh of EVERY team -> discovers new/rescheduled games
+#     and mops up any score that posted late (the "once a day after that" net).
+# Any other run is a couple of tiny Supabase reads and an early exit -- so on a
+# quiet weekday nothing gets polled, and pulls cluster on game days.
+LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "18"))   # keep chasing an unposted score up to 18h after kickoff
 LOOKAHEAD_HOURS = int(os.environ.get("LOOKAHEAD_HOURS", "2"))  # warm up before kickoff
-REFRESH_HOUR_UTC = int(os.environ.get("REFRESH_HOUR_UTC", "11"))  # daily schedule refresh (~7am ET)
+REFRESH_HOUR_UTC = int(os.environ.get("REFRESH_HOUR_UTC", "11"))  # daily full refresh (~7am ET): catches later-posted scores + schedule changes, once a day
 
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def any_game_in_window(back_hours, ahead_hours):
-    """True if any followed game kicks off within [now-back, now+ahead].
-    Every games row is a followed team's game, so one hit means it's game time."""
+def pending_score_teams(back_hours, ahead_hours):
+    """team_ids that have an UNSCORED game kicking off within [now-back, now+ahead].
+    These are the only teams worth polling frequently -- a game that's upcoming,
+    live, or recently finished but whose score hasn't posted yet. The instant
+    gotSport posts the score (team_score stops being null), that team drops out
+    and we stop hammering it. Anything still unscored past the window is left to
+    the once-a-day full refresh."""
     now = datetime.now(timezone.utc)
     lo = (now - timedelta(hours=back_hours)).isoformat()
     hi = (now + timedelta(hours=ahead_hours)).isoformat()
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
-        params={"select": "match_id", "and": f"(match_time.gte.{lo},match_time.lte.{hi})", "limit": 1},
+        params={"select": "team_id",
+                "and": f"(match_time.gte.{lo},match_time.lte.{hi},team_score.is.null)"},
         timeout=30,
     )
     r.raise_for_status()
-    return len(r.json()) > 0
+    return {str(row["team_id"]) for row in r.json()}
 
 
 def teams_missing_games(team_ids):
@@ -96,26 +104,34 @@ def teams_missing_games(team_ids):
     return [t for t in team_ids if str(t) not in have]
 
 
-def should_sync(team_ids):
-    """Decide whether this run does a real pull. Returns (bool, reason)."""
+def plan_sync(team_ids):
+    """Decide WHICH teams this run pulls. Returns (targets, reason):
+      targets is None  -> pull everyone (forced / daily full refresh / safe fallback)
+      targets is set() -> pull nobody (skip this run)
+      targets is {ids} -> pull just those teams (they have a live/unscored game)."""
     if os.environ.get("FORCE_SYNC") == "1":
-        return True, "forced (manual run)"
+        return None, "forced (manual run)"
     now = datetime.now(timezone.utc)
-    # Once a day, refresh the schedule so new/rescheduled games get picked up.
-    # Only the top-of-hour run inside REFRESH_HOUR_UTC qualifies (cron fires
-    # every 10 min; minute<10 keeps it to a single daily refresh).
+    # Once a day, refresh EVERY team: discovers new/rescheduled games and catches
+    # any score that posted late (the "once a day after that" safety net). Only
+    # the top-of-hour run inside REFRESH_HOUR_UTC qualifies (cron fires every
+    # 10 min; minute<10 keeps it to a single daily refresh).
     if now.hour == REFRESH_HOUR_UTC and now.minute < 10:
-        return True, "daily schedule refresh"
+        return None, "daily full refresh"
     try:
-        missing = teams_missing_games(team_ids)
-        if missing:
-            return True, f"{len(missing)} newly-followed team(s) with no games yet"
-        if any_game_in_window(LOOKBACK_HOURS, LOOKAHEAD_HOURS):
-            return True, "game in progress / imminent"
+        follow = {str(t) for t in team_ids}
+        missing = set(teams_missing_games(team_ids))          # just-followed -> need a first pull
+        pending = pending_score_teams(LOOKBACK_HOURS, LOOKAHEAD_HOURS) & follow
+        targets = (missing | pending) & follow
+        if targets:
+            bits = []
+            if pending: bits.append(f"{len(pending)} with a live/unscored game")
+            if missing: bits.append(f"{len(missing)} newly-followed")
+            return targets, ", ".join(bits)
     except Exception as e:
-        # If the schedule check itself fails, don't silently go dark -- sync.
-        return True, f"schedule check failed ({e}); syncing to be safe"
-    return False, "no game near now; skipping pull"
+        # If the check itself fails, don't silently go dark -- pull everyone.
+        return None, f"schedule check failed ({e}); pulling all to be safe"
+    return set(), "no live or unscored games near now; skipping"
 
 
 def get_followed_teams():
@@ -412,14 +428,17 @@ def main():
     ecnl = [t for t in teams if (t.get("source") or "") == "ecnl"]
     print(f"Followed: {len(gots)} gotSport, {len(ecnl)} ECNL")
 
-    # Smart scheduling: only do the real pull when there's something to pull for.
+    # Smart scheduling: pull only the teams that need it right now.
     all_ids = gots + [f"ecnl-{t.get('ecnl_team')}" for t in ecnl]
-    go, reason = should_sync(all_ids)
-    print(f"Sync decision: {'RUN' if go else 'SKIP'} -- {reason}")
-    if not go:
+    targets, reason = plan_sync(all_ids)
+    scope = "ALL" if targets is None else ("SKIP" if not targets else f"{len(targets)} team(s)")
+    print(f"Sync decision: {scope} -- {reason}")
+    if targets is not None and not targets:
         return
-    rows = build_rows(gots)
-    for t in ecnl:
+    pull_gots = gots if targets is None else [g for g in gots if g in targets]
+    pull_ecnl = ecnl if targets is None else [t for t in ecnl if f"ecnl-{t.get('ecnl_team')}" in targets]
+    rows = build_rows(pull_gots)
+    for t in pull_ecnl:
         try:
             er = build_ecnl_rows(t)
             print(f"  ECNL team {t.get('ecnl_team')}: {len(er)} games")
