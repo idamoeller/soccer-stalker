@@ -143,22 +143,26 @@
     font-family:var(--mono);font-size:9.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;
     color:var(--muted-2);white-space:nowrap;}
   .gsched td{padding:10px 12px 10px 0;border-bottom:1px solid var(--rule-soft);vertical-align:middle;}
+  /* subtle vertical gridlines between every column (skip the outer-left edge) */
+  .gsched th, .gsched td{border-left:1px solid var(--rule-soft);}
+  .gsched th:first-child, .gsched td:first-child{border-left:none;}
   .gsched .g-date{white-space:nowrap;font-family:var(--sans);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
   .gsched .g-date .dtime{color:var(--muted-2);margin-left:6px;}
   .gsched .ttbd{color:var(--faint);}   /* time not posted yet (e.g. ECNL fixture not finalized) */
-  .gsched .g-team{min-width:140px;max-width:180px;}
+  .gsched .g-team{min-width:140px;max-width:180px;padding-left:12px;}   /* keep shields/names off the gridlines */
   /* home team hugs the score from the left, away from the right, so the score reads centered between them */
   .gsched td.g-home{text-align:right;}
   .gsched td.g-home .gteam{justify-content:flex-end;}
   .gteam{display:flex;align-items:center;gap:8px;}
   .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;font-family:var(--sans);text-transform:none;letter-spacing:0;}
   .gsched .gwin .gtname{font-weight:700;}   /* bold the winner */
-  .gstar{flex:none;color:var(--draw);font-size:11px;line-height:1;}   /* marks the team you follow */
-  /* subtle gridlines frame the score so it sits as a centered column between the teams */
+  /* the team you follow: an accent vertical bar on the score-facing edge of its cell
+     (right edge for the home/left team, left edge for the away/right team) */
+  .gsched td.mebar.g-home{box-shadow:inset -3px 0 0 var(--accent);}
+  .gsched td.mebar.g-away{box-shadow:inset 3px 0 0 var(--accent);}
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--sans);font-size:12.5px;font-weight:500;
-    color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;
-    border-left:1px solid var(--rule-soft);border-right:1px solid var(--rule-soft);}
-  .gsched .g-event{max-width:180px;font-size:12px;color:var(--ink-2);line-height:1.25;}
+    color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;}
+  .gsched .g-event{max-width:180px;font-size:12px;color:var(--ink-2);line-height:1.25;padding-left:12px;}
   .gsched .ge-flight{font-size:11px;color:var(--muted-2);line-height:1.2;margin-top:2px;}
   .gsched .lrow{cursor:pointer;}
   .gsched .lrow:hover td{background:#f7f7f4;}
@@ -1555,19 +1559,18 @@
     const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
     const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
-    // bold the winner; mark the team you follow with a star (not bold)
+    // bold the winner; mark the team you follow with an accent bar on its score-facing edge
     let aWin = false, bWin = false;
     if (done) { if (as_ > bs) aWin = true; else if (bs > as_) bWin = true; }
-    const star = '<span class="gstar" title="Team you follow" aria-label="team you follow">★</span>';
     const teamCell = (t, win) => '<div class="gteam' + (win ? ' gwin' : '') + '">'
-      + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span>'
-      + (t.me ? star : '') + '</div>';
+      + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
+    const meAttr = ' title="Team you follow"';   // marks the followed team's cell (bar via .mebar)
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
       + '<td class="g-date">' + timeCell + '</td>'
-      + '<td class="g-team g-home">' + teamCell(A, aWin) + '</td>'
+      + '<td class="g-team g-home' + (A.me ? ' mebar' : '') + '"' + (A.me ? meAttr : '') + '>' + teamCell(A, aWin) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
-      + '<td class="g-team g-away">' + teamCell(B, bWin) + '</td>'
+      + '<td class="g-team g-away' + (B.me ? ' mebar' : '') + '"' + (B.me ? meAttr : '') + '>' + teamCell(B, bWin) + '</td>'
       + '<td class="g-event">'
         + (g.event_name ? '<div class="ge-name" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
         + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
