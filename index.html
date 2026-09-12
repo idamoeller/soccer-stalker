@@ -15,6 +15,7 @@
     --rule-strong:#d9d9d3; --rule:#e4e4de; --rule-soft:#eeeee8; --border:#e2e2dd; --field:#c9c9c2;
     --accent:#2c6b45; --accent-soft:#b9cdc2;
     --win:#2c6b45; --loss:#9c3b34; --draw:#7a6318; --white:#ffffff;
+    --mine:#e7eef8; --mine-hi:#dbe7f6;   /* light-blue shade for the team you follow */
     --serif:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
@@ -156,15 +157,9 @@
   .gteam{display:flex;align-items:center;gap:8px;}
   .gtname{font-size:13px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere;font-family:var(--sans);text-transform:none;letter-spacing:0;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}  /* cap at 2 lines so rows stay one height */
-  .gsched .gme .gtname{font-weight:700;}   /* bold the team you follow */
-  /* result bar on each team's score-facing edge: green won, red lost, grey tie
-     (right edge for the home/left team, left edge for the away/right team) */
-  .gsched td.g-home.rwin{box-shadow:inset -3px 0 0 var(--win);}
-  .gsched td.g-home.rloss{box-shadow:inset -3px 0 0 var(--loss);}
-  .gsched td.g-home.rtie{box-shadow:inset -3px 0 0 var(--muted);}
-  .gsched td.g-away.rwin{box-shadow:inset 3px 0 0 var(--win);}
-  .gsched td.g-away.rloss{box-shadow:inset 3px 0 0 var(--loss);}
-  .gsched td.g-away.rtie{box-shadow:inset 3px 0 0 var(--muted);}
+  .gsched td.gwin .gtname{font-weight:700;}     /* bold the winning team */
+  .gsched td.gme{background:var(--mine);}        /* light-blue shade on the team you follow */
+  .gsched .lrow:hover td.gme{background:var(--mine-hi);}   /* keep the shade visible on row hover */
   .gsched tbody tr.lrow td{height:52px;}   /* uniform row height (names clamp to 2 lines) */
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--sans);font-size:12.5px;font-weight:500;
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;}
@@ -1565,17 +1560,18 @@
     const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
     const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
-    // bold the team you follow; put a result bar on each team's score-facing edge
-    // (green = won, red = lost, grey = tie; nothing until the game is played)
-    const barCls = (mine, theirs) => !done ? "" : (mine > theirs ? " rwin" : mine < theirs ? " rloss" : " rtie");
-    const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '"' + (t.me ? ' title="Team you follow"' : '') + '>'
+    // bold the winning team; shade the cell of the team you follow (light blue)
+    const winCls = (mine, theirs) => (done && mine != null && theirs != null && mine > theirs) ? " gwin" : "";
+    const teamCell = t => '<div class="gteam">'
       + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
+    const homeCls = 'g-team g-home' + winCls(as_, bs) + (A.me ? ' gme' : '');
+    const awayCls = 'g-team g-away' + winCls(bs, as_) + (B.me ? ' gme' : '');
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
       + '<td class="g-date">' + timeCell + '</td>'
-      + '<td class="g-team g-home' + barCls(as_, bs) + '">' + teamCell(A) + '</td>'
+      + '<td class="' + homeCls + '"' + (A.me ? ' title="Team you follow"' : '') + '>' + teamCell(A) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
-      + '<td class="g-team g-away' + barCls(bs, as_) + '">' + teamCell(B) + '</td>'
+      + '<td class="' + awayCls + '"' + (B.me ? ' title="Team you follow"' : '') + '>' + teamCell(B) + '</td>'
       + '<td class="g-event">'
         + (g.event_name ? '<div class="ge-name" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
         + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
