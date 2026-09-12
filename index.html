@@ -155,6 +155,10 @@
   .gsched .g-flight{max-width:130px;font-size:12px;color:var(--muted-2);line-height:1.25;}
   .gsched .lrow{cursor:pointer;}
   .gsched .lrow:hover td{background:#f7f7f4;}
+  /* day separator: one full-width heading row per day, so each day reads as a block */
+  .gsched tr.gday td{padding:16px 0 5px;border-bottom:1px solid var(--rule-strong);}
+  .gsched tbody tr.gday:first-child td{padding-top:2px;}
+  .gday-c{font-family:var(--mono);font-size:10px;font-weight:400;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);}
   @media (min-width:760px){
     .teamblock{margin-top:26px;}
     .teamband{gap:11px;padding:9px 10px;}
@@ -175,6 +179,22 @@
     .l-event{display:table-cell;width:230px;padding:11px 0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .lrow:hover td{background:#f7f7f4;}
     .brec-div{display:inline;}
+    /* combined schedule: a touch smaller + tighter on a computer */
+    .gsched td{padding:7px 12px 7px 0;}
+    .gsched .g-date{font-size:10.5px;}
+    .gsched .gtname{font-size:12px;}
+    .gsched .g-score{font-size:12px;}
+    .gsched .g-event{font-size:11px;}
+    .gsched .g-flight{font-size:11px;}
+    .gsched tr.gday td{padding:15px 0 5px;}
+    .gday-c{font-size:9.5px;}
+  }
+  /* on a wide screen let the combined schedule spill a bit past the 900px column */
+  @media (min-width:1000px){
+    #games .gscroll{--gw:min(1140px, calc(100vw - 56px));width:var(--gw);margin-left:calc(50% - var(--gw)/2);}
+    .gsched .g-team{max-width:270px;}
+    .gsched .g-event{max-width:250px;}
+    .gsched .g-flight{max-width:200px;}
   }
 
   /* expanded: reskinned cards */
@@ -1500,14 +1520,12 @@
       B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
       as_ = g.opponent_score; bs = g.team_score;
     }
-    const time = ledTime(g);
-    const dateCell = '<span class="ddesk">' + escapeHtml(ledDate(g, true)) + '</span>'
-      + (!done && time ? '<span class="dtime">' + escapeHtml(time) + '</span>' : "");
+    const timeCell = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     const teamCell = t => '<div class="gteam' + (t.me ? ' gme' : '') + '">'
       + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
-      + '<td class="g-date">' + dateCell + '</td>'
+      + '<td class="g-date">' + escapeHtml(timeCell) + '</td>'
       + '<td class="g-team">' + teamCell(A) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
       + '<td class="g-team">' + teamCell(B) + '</td>'
@@ -1515,13 +1533,32 @@
       + '<td class="g-flight">' + escapeHtml(g.division_name || "") + '</td>'
       + '</tr>';
   }
+  // combined view groups games into day blocks: a full-width date header, then
+  // that day's rows. Games arrive pre-sorted by date, so same-day rows are adjacent.
+  function dayKey(g) {
+    const d = gameDate(g);
+    return d ? d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate() : "tbd";
+  }
+  function dayHeading(g) {
+    const d = gameDate(g);
+    return d ? d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) : "Date TBD";
+  }
   function combinedTable(games) {
+    let body = "", curDay = null;
+    for (const g of games) {
+      const k = dayKey(g);
+      if (k !== curDay) {
+        curDay = k;
+        body += '<tr class="gday"><td class="gday-c" colspan="6">' + escapeHtml(dayHeading(g)) + '</td></tr>';
+      }
+      body += gschedRow(g);
+    }
     return '<div class="gscroll"><table class="gsched"><thead><tr>'
-      + '<th class="g-date">Date</th><th class="g-team">Team A</th>'
+      + '<th class="g-date">Time</th><th class="g-team">Team A</th>'
       + '<th class="g-score">Score</th><th class="g-team">Team B</th>'
       + '<th class="g-event">Event</th><th class="g-flight">Flight / Bracket</th>'
       + '</tr></thead><tbody>'
-      + games.map(gschedRow).join("")
+      + body
       + '</tbody></table></div>';
   }
   function ledgerTable(games, combined) {
