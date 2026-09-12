@@ -37,7 +37,9 @@ load_dotenv(os.path.join(HERE, ".env"))
 
 GOTSPORT = "https://system.gotsport.com"
 COOKIE_FILE = os.path.join(HERE, "cookies.json")
+REFRESH_SCRIPT = os.path.join(HERE, "refresh_cookie.py")
 GROUP_HARVEST_STATE = os.path.join(HERE, ".group_harvest")   # last date we mapped division->group
+COOKIE_REFRESH_STATE = os.path.join(HERE, ".cookie_refresh")  # last self-heal attempt (rate-limit)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -49,6 +51,8 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "5"))
 LOOKAHEAD_HOURS = int(os.environ.get("LOOKAHEAD_HOURS", "2"))
 COOKIE_MAX_AGE_HOURS = float(os.environ.get("COOKIE_MAX_AGE_HOURS", "30"))
+# self-heal: don't spawn a refresh browser more than once per this many minutes
+COOKIE_REFRESH_COOLDOWN_MIN = float(os.environ.get("COOKIE_REFRESH_COOLDOWN_MIN", "30"))
 
 MONTHS = {"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "Jun": "06",
           "Jul": "07", "Aug": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"}
@@ -128,6 +132,21 @@ def watch_labels():
     return labels
 
 
+def load_group_map():
+    """(event_id, division_name) -> conference `group` id, from event_groups (the
+    same map we harvest for the web app's deep-links). Lets us fetch a game's exact
+    conference page instead of the age+gender page, which for a multi-conference
+    league lands on the wrong conference and misses our teams entirely."""
+    gm = {}
+    for r in sb_get("event_groups", {"select": "event_id,division_name,group_id"}, required=False):
+        ev = str(r.get("event_id") or "").strip()
+        dn = (r.get("division_name") or "").strip()
+        gid = str(r.get("group_id") or "").strip()
+        if ev and dn and gid:
+            gm[(ev, dn)] = gid
+    return gm
+
+
 def patch_score(match_id, team_id, team_score, opp_score):
     r = requests.patch(
         f"{SUPABASE_URL}/rest/v1/games",
@@ -156,6 +175,47 @@ def load_cookies():
     return data.get("cookies", {})
 
 
+def cookie_age_hours():
+    """Age of the saved cookie in hours; a big number if it can't be read (so callers
+    treat a missing/unreadable cookie as 'needs refresh')."""
+    try:
+        data = json.load(open(COOKIE_FILE))
+        return (now() - datetime.fromisoformat(data["saved_at"])).total_seconds() / 3600
+    except Exception:
+        return 1e9
+
+
+def refresh_cookie_now(reason=""):
+    """Self-heal a stale/blocked cookie by running refresh_cookie.py inline, so the
+    every-few-minutes poll recovers on its own when the nightly 3am refresh missed
+    (Mac asleep/offline) instead of going dark until the next 3am. Rate-limited so a
+    persistent failure (e.g. still offline) doesn't spawn a browser every cycle.
+    Returns True only if a fresh cookie was obtained."""
+    import subprocess
+    try:
+        since = time.time() - os.path.getmtime(COOKIE_REFRESH_STATE)
+        if since < COOKIE_REFRESH_COOLDOWN_MIN * 60:
+            print(f"  cookie refresh needed ({reason}) but last attempt was "
+                  f"{since/60:.0f}m ago (< {COOKIE_REFRESH_COOLDOWN_MIN:.0f}m); skipping.")
+            return False
+    except OSError:
+        pass                                   # no prior attempt on record
+    open(COOKIE_REFRESH_STATE, "w").close()    # stamp this attempt before running
+    print(f"  self-healing cookie ({reason}): running refresh_cookie.py ...")
+    try:
+        r = subprocess.run([sys.executable, REFRESH_SCRIPT], cwd=HERE,
+                           capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        print("  cookie refresh timed out (browser/reCAPTCHA took too long).")
+        return False
+    if r.returncode == 0:
+        print("  cookie refreshed.")
+        return True
+    tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+    print(f"  cookie refresh failed (rc={r.returncode}): {tail[-1] if tail else '?'}")
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # Fetch + parse the schedule page
 # --------------------------------------------------------------------------- #
@@ -168,9 +228,10 @@ def event_age_gender(division_name):
     low = division_name.lower()
     am = re.search(r"u\s*-?\s*(\d{1,2})", low)
     age = am.group(1) if am else None
-    if "girl" in low or "female" in low or re.search(r"\bg\s*u?\s*\d", low):
+    # gender can lead ("GU13", "G U13") or trail the age ("U13G", "13G")
+    if "girl" in low or "female" in low or re.search(r"\bg\s*u?\s*\d", low) or re.search(r"\d\s*g\b", low):
         gender = "f"
-    elif "boy" in low or "male" in low or re.search(r"\bb\s*u?\s*\d", low):
+    elif "boy" in low or "male" in low or re.search(r"\bb\s*u?\s*\d", low) or re.search(r"\d\s*b\b", low):
         gender = "m"
     else:
         gender = None
@@ -182,6 +243,13 @@ def schedule_url(event_id, age, gender):
     if age and gender:
         return f"{base}?age={age}&gender={gender}"
     return base
+
+
+def group_url(event_id, group_id):
+    """The exact conference page. Multi-conference leagues (DPL, NAL, ...) put each
+    conference on its own ?group=<id> page; the age+gender page lands on just one
+    conference, so we prefer the group page whenever we know the id."""
+    return f"{GOTSPORT}/org_event/events/{event_id}/schedules?group={group_id}"
 
 
 def fetch_schedule(url, cookies):
@@ -306,7 +374,7 @@ def game_url(game):
     return schedule_url(ev, age, gender)
 
 
-def notify(game, ts, os_, label):
+def notify(game, ts, os_, label, click_url=None):
     name = game["team_name"]
     opp = game["opponent_name"]
     letter = "W" if ts > os_ else "L" if ts < os_ else "T"
@@ -317,9 +385,10 @@ def notify(game, ts, os_, label):
     if not NTFY_TOPIC:
         return
     # ⚽ leads the alert (the "soccer" tag renders as an emoji before the title).
-    # "Click" makes tapping the alert open the live page.
+    # "Click" makes tapping the alert open the live page -- prefer the exact page we
+    # scored from (the right conference), falling back to the age+gender page.
     headers = {"Title": title, "Tags": "soccer", "Priority": "high"}
-    url = game_url(game)
+    url = click_url or game_url(game)
     if url:
         headers["Click"] = url
     try:
@@ -609,25 +678,41 @@ def run(force=False):
     if not games:
         print("No gotSport games in the window right now. Nothing to do.")
         return
+    # We have games to score -> make sure the cookie is fresh enough to read them.
+    # (Self-heals a missed 3am refresh; only runs when there's actually work to do.)
+    if cookie_age_hours() > COOKIE_MAX_AGE_HOURS and refresh_cookie_now(f"cookie {cookie_age_hours():.0f}h old"):
+        cookies = load_cookies()
     labels = watch_labels()
     idx = load_index()
+    gmap = load_group_map()   # (event, division) -> exact conference page
 
-    # Bucket games by (event, age, gender) so each distinct schedule page is
-    # fetched exactly once, then scored against every game in that bucket.
+    # Bucket games by schedule page so each distinct page is fetched exactly once,
+    # then scored against every game in that bucket. Prefer the exact conference
+    # page (?group=) when we know it; fall back to the age+gender page otherwise.
     buckets = {}
     for g in games:
         ev = str(g.get("event_id") or "").strip()
         if not ev:
             continue
-        age, gender = event_age_gender(g.get("division_name"))
-        buckets.setdefault((ev, age, gender), []).append(g)
+        gid = gmap.get((ev, (g.get("division_name") or "").strip()))
+        if gid:
+            key, url, desc = (ev, "group", gid), group_url(ev, gid), f"group={gid}"
+        else:
+            age, gender = event_age_gender(g.get("division_name"))
+            key, url, desc = (ev, age, gender), schedule_url(ev, age, gender), f"age={age} gender={gender}"
+        b = buckets.setdefault(key, {"ev": ev, "url": url, "desc": desc, "games": []})
+        b["games"].append(g)
 
     print(f"{len(games)} game(s) in window across {len(buckets)} schedule page(s).")
     changed = discovered = 0
-    for (ev, age, gender), bucket in buckets.items():
-        url = schedule_url(ev, age, gender)
+    for b in buckets.values():
+        ev, url, bucket = b["ev"], b["url"], b["games"]
         status, html = fetch_schedule(url, cookies)
-        print(f"  event {ev} age={age} gender={gender}: {status} ({len(bucket)} game(s))")
+        print(f"  event {ev} {b['desc']}: {status} ({len(bucket)} game(s))")
+        if status == "blocked" and refresh_cookie_now("blocked by gotSport"):
+            cookies = load_cookies()               # reuse the fresh cookie for later buckets too
+            status, html = fetch_schedule(url, cookies)
+            print(f"  event {ev} {b['desc']} (after refresh): {status} ({len(bucket)} game(s))")
         if status == "blocked":
             sys.exit("  cookie is stale/blocked -> run refresh_cookie.py, then retry.")
         if status == "empty":
@@ -642,7 +727,7 @@ def run(force=False):
             print(f"    {g['team_name']} {g.get('team_score')}-{g.get('opponent_score')}"
                   f" -> {ts}-{os_} vs {g['opponent_name']}")
             patch_score(g["match_id"], g["team_id"], ts, os_)
-            notify(g, ts, os_, labels.get(ev))
+            notify(g, ts, os_, labels.get(ev), click_url=url)
             changed += 1
         discovered += discover(parsed, ev, idx, labels)    # add day-of games we don't have yet
         time.sleep(0.4)                                    # be polite to gotSport

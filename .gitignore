@@ -8,3 +8,4 @@ matchday/.venv/
 matchday/cookies.json
 matchday/*.log
 matchday/.group_harvest
+matchday/.cookie_refresh
