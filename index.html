@@ -720,6 +720,44 @@
   // shield (followed_teams.logo / its other games) — so ECNL rows, which carry no
   // per-game logo, still show a crest for teams we know.
   function sideLogo(gameLogo, teamId) { return gameLogo || teamLogo(teamId); }
+  // ---- ECNL LEAGUE opponent shields (client-side, cached) ---------------------
+  // ECNL league games carry no opponent logo and the opponent isn't a team we
+  // follow, so the crest would fall back to a monogram. Fill it best-effort from
+  // a gotSport club-shield search (the same lookup used for our own ECNL teams),
+  // keyed by cleaned club name + age + gender, cached in localStorage. Misses are
+  // cached too (short TTL) so we don't re-search every render.
+  const OPP_MISS_TTL = 7 * 86400000;          // retry a "no shield found" after a week
+  let oppLogoCache = {};
+  try { oppLogoCache = JSON.parse(localStorage.getItem("ss:opplogos") || "{}") || {}; } catch (e) { oppLogoCache = {}; }
+  const oppLogoInflight = new Set();
+  // age + gender for an ECNL opponent = the followed team's own (same division)
+  function ecnlOppAG(g) {
+    const t = teamsCache.find(x => String(x.team_id) === String(g.team_id));
+    let age = t ? sgAgeNum(t.age) : null, gender = (t && t.gender) || "";
+    if (!age) age = sgAgeNum(g.division_name);           // fallback: parse the division
+    if (!gender) gender = /\bb(oys?)?\b/.test((g.division_name || "").toLowerCase()) ? "m" : "f";
+    return age ? { age, gender: gender || "f" } : null;
+  }
+  // does this game need an opponent-shield lookup? (ECNL league row, no logo yet)
+  function oppNeedsLogo(g) {
+    return String(g.opponent_id || "").startsWith("ecnl-")
+      && !g.opponent_logo && !teamLogo(g.opponent_id)
+      && !!g.opponent_name && !!ecnlOppAG(g);
+  }
+  function oppLogoKey(g) {
+    const ag = ecnlOppAG(g); if (!ag) return null;
+    const club = ecClubQuery(g.opponent_name) || String(g.opponent_name || "").trim();
+    return club ? club.toLowerCase() + "|" + ag.age + "|" + ag.gender : null;
+  }
+  // cached shield url for an ECNL opponent, or null (unknown / a miss)
+  function oppLogoCached(g) {
+    const k = oppLogoKey(g); if (!k) return null;
+    const e = oppLogoCache[k];
+    return (e && e.v) ? e.v : null;
+  }
+  // opponent crest: per-game logo, else the opponent's own shield (if followed),
+  // else a cached gotSport club shield for ECNL league opponents, else null.
+  function oppSideLogo(g) { return sideLogo(g.opponent_logo, g.opponent_id) || oppLogoCached(g); }
   // Prepend the club name unless it's already part of the team name.
   function withClub(teamId, name) {
     if (!name) return name || "";
@@ -1426,7 +1464,7 @@
   function ledRow(g, combined) {
     const done = isDone(g), r = cResult(g), time = ledTime(g);
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
-    const oppCrest = crestTile(sideLogo(g.opponent_logo, g.opponent_id), oppName, "opp");
+    const oppCrest = crestTile(oppSideLogo(g), oppName, "opp");
     const event = g.event_name || "", field = g.field_name || "";
     const tag = combined ? (withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "") : "";
     const pre = tag ? tag + " · " : "";
@@ -1452,10 +1490,10 @@
     let A, B, as_, bs;                                   // A = Team A (home side), B = Team B (away side)
     if (g.is_home) {
       A = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
-      B = { name: oppName, logo: sideLogo(g.opponent_logo, g.opponent_id), me: false };
+      B = { name: oppName, logo: oppSideLogo(g), me: false };
       as_ = g.team_score; bs = g.opponent_score;
     } else {
-      A = { name: oppName, logo: sideLogo(g.opponent_logo, g.opponent_id), me: false };
+      A = { name: oppName, logo: oppSideLogo(g), me: false };
       B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
       as_ = g.opponent_score; bs = g.team_score;
     }
@@ -1542,7 +1580,7 @@
 
   function gameRow(g) {
     const mine = { name: withClub(g.team_id, g.team_name) || teamNick(g.team_id), logo: sideLogo(g.team_logo, g.team_id), score: g.team_score, mine: true };
-    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: sideLogo(g.opponent_logo, g.opponent_id), score: g.opponent_score, mine: false };
+    const opp = { name: withClub(g.opponent_id, g.opponent_name), logo: oppSideLogo(g), score: g.opponent_score, mine: false };
     const rcls = resultCls(g);
     const meta = escapeHtml(fmtWhen(g))
       + (g.field_name ? " · " + escapeHtml(g.field_name) : "")
@@ -1585,6 +1623,7 @@
       ).join("");
     }
     updateTfLabel();
+    backfillOpponentLogos();   // fill missing ECNL league opponent shields (best-effort, async)
   }
 
   // ---------- Tournament Watcher ----------
@@ -2087,6 +2126,7 @@
     // strip league/age tokens so what's left is basically the club, for a gotSport search
     return String(name || "")
       .replace(/\b(ecnl|ecrl|rl|pre-?ecnl|pre|regional|national|league|nal|npl|academy|girls|boys)\b/gi, " ")
+      .replace(/\b[gb]?\d{4}(\/\d{2})?\b/gi, " ")   // birth-year tokens: 2013, 2013/14, G2013/14
       .replace(/\bu-?\d{1,2}\b/gi, " ").replace(/\b\d{2,4}\b/g, " ")
       .replace(/\s+/g, " ").trim();
   }
@@ -2257,6 +2297,42 @@
     const set = await Promise.all(todo.map(t =>
       ecnlLookupAndSetLogo(String(t.team_id), ecClubQuery(t.name) || t.name, sgAgeNum(t.age), t.gender || "f")));
     if (set.some(Boolean)) { await loadTeams(); renderGames(); }
+  }
+  // Best-effort background fill of ECNL LEAGUE opponent shields (see oppSideLogo).
+  // Gather the distinct un-cached opponents on screen, search gotSport for a club
+  // shield, cache each result (hits AND misses), then re-render once so the new
+  // crests appear. Capped per pass so first view doesn't fire a request storm;
+  // successive passes (triggered by the re-render, or scheduled) drain the rest.
+  const OPP_MAX_PER_PASS = 8;
+  async function backfillOpponentLogos() {
+    const now = Date.now();
+    const jobs = new Map();                      // key -> { name, age, gender }
+    for (const g of allGames) {
+      if (!oppNeedsLogo(g)) continue;
+      const k = oppLogoKey(g); if (!k || oppLogoInflight.has(k) || jobs.has(k)) continue;
+      const e = oppLogoCache[k];
+      if (e && (e.v || (now - (e.t || 0)) < OPP_MISS_TTL)) continue;   // fresh hit or fresh miss
+      const ag = ecnlOppAG(g);
+      jobs.set(k, { name: ecClubQuery(g.opponent_name) || g.opponent_name, age: ag.age, gender: ag.gender });
+    }
+    if (!jobs.size) return;
+    const picked = [...jobs.entries()].slice(0, OPP_MAX_PER_PASS);
+    picked.forEach(([k]) => oppLogoInflight.add(k));
+    let changed = false;
+    await Promise.all(picked.map(async ([k, j]) => {
+      let logo = "";
+      try {
+        const { teams } = await gsQueryTeams(j.name, j.gender, j.age);
+        const best = rankGsForLink(teams, j.name)[0];
+        if (best && best.logo) logo = best.logo;
+      } catch (e) { /* leave as a miss */ }
+      oppLogoCache[k] = { v: logo, t: Date.now() };
+      if (logo) changed = true;
+      oppLogoInflight.delete(k);
+    }));
+    try { localStorage.setItem("ss:opplogos", JSON.stringify(oppLogoCache)); } catch (e) {}
+    if (changed) renderGames();                          // re-render → next pass fires from there
+    else if (jobs.size > picked.length) setTimeout(backfillOpponentLogos, 500);   // drain remaining misses
   }
   $("gsSearch").addEventListener("click", gsSearch);
   $("gsQuery").addEventListener("keydown", e => { if (e.key === "Enter") gsSearch(); });
