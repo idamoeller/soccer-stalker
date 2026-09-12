@@ -1368,9 +1368,12 @@
   }
 
   function fmtWhen(g) {
-    if (!g.match_time) return g.match_date || "Time TBD";
-    const d = new Date(g.match_time);
-    return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    if (g.match_time) {
+      const d = new Date(g.match_time);
+      if (!isNaN(d)) return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+    const d = gameDate(g);   // no kickoff time yet (common for ECNL) — still show a nicely formatted date
+    return d ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) : "Time TBD";
   }
   function resultCls(g) {
     if (g.team_score == null || g.opponent_score == null) return "";
