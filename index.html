@@ -160,6 +160,14 @@
   .gsched td.gwin .gtname{font-weight:700;}     /* bold the winning team */
   .gsched td.gme{background:var(--mine);}        /* light-blue shade on the team you follow */
   .gsched .lrow:hover td.gme{background:var(--mine-hi);}   /* keep the shade visible on row hover */
+  /* result stripe on each team's score-facing edge: green won, red lost, grey tie
+     (right edge for the home/left team, left edge for the away/right team) */
+  .gsched td.g-home.rwin{box-shadow:inset -3px 0 0 var(--win);}
+  .gsched td.g-home.rloss{box-shadow:inset -3px 0 0 var(--loss);}
+  .gsched td.g-home.rtie{box-shadow:inset -3px 0 0 var(--muted);}
+  .gsched td.g-away.rwin{box-shadow:inset 3px 0 0 var(--win);}
+  .gsched td.g-away.rloss{box-shadow:inset 3px 0 0 var(--loss);}
+  .gsched td.g-away.rtie{box-shadow:inset 3px 0 0 var(--muted);}
   .gsched tbody tr.lrow td{height:52px;}   /* uniform row height (names clamp to 2 lines) */
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--sans);font-size:12.5px;font-weight:500;
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;}
@@ -1560,12 +1568,14 @@
     const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
     const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
-    // bold the winning team; shade the cell of the team you follow (light blue)
+    // bold the winning team; shade the cell of the team you follow (light blue);
+    // and a stripe on each team's score-facing edge (green won, red lost, grey tie)
     const winCls = (mine, theirs) => (done && mine != null && theirs != null && mine > theirs) ? " gwin" : "";
+    const barCls = (mine, theirs) => (!done || mine == null || theirs == null) ? "" : (mine > theirs ? " rwin" : mine < theirs ? " rloss" : " rtie");
     const teamCell = t => '<div class="gteam">'
       + crestTile(t.logo, t.name, "opp") + '<span class="gtname">' + escapeHtml(t.name) + '</span></div>';
-    const homeCls = 'g-team g-home' + winCls(as_, bs) + (A.me ? ' gme' : '');
-    const awayCls = 'g-team g-away' + winCls(bs, as_) + (B.me ? ' gme' : '');
+    const homeCls = 'g-team g-home' + winCls(as_, bs) + barCls(as_, bs) + (A.me ? ' gme' : '');
+    const awayCls = 'g-team g-away' + winCls(bs, as_) + barCls(bs, as_) + (B.me ? ' gme' : '');
     const score = done ? (as_ + ' - ' + bs) : '—';
     return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
       + '<td class="g-date">' + timeCell + '</td>'
