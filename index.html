@@ -151,7 +151,7 @@
   .gme .gtname{font-weight:600;}
   .gsched .g-score{width:56px;text-align:center;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:500;
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:8px;padding-right:8px;}
-  .gsched .g-event{max-width:230px;font-size:12px;color:var(--ink-2);line-height:1.25;}
+  .gsched .g-event{max-width:180px;font-size:12px;color:var(--ink-2);line-height:1.25;}
   .gsched .ge-flight{font-size:11px;color:var(--muted-2);line-height:1.2;margin-top:2px;}
   .gsched .lrow{cursor:pointer;}
   .gsched .lrow:hover td{background:#f7f7f4;}
@@ -191,9 +191,9 @@
   }
   /* on a wide screen let the combined schedule spill a bit past the 900px column */
   @media (min-width:1000px){
-    #games .gscroll{--gw:min(1040px, calc(100vw - 56px));width:var(--gw);margin-left:calc(50% - var(--gw)/2);}
+    #games .gscroll{--gw:min(920px, calc(100vw - 56px));width:var(--gw);margin-left:calc(50% - var(--gw)/2);}
     .gsched .g-team{max-width:270px;}
-    .gsched .g-event{max-width:340px;}
+    .gsched .g-event{max-width:200px;}
   }
 
   /* expanded: reskinned cards */
@@ -1505,6 +1505,22 @@
   // Combined + compact = a gotSport-style schedule table: Date · Team A · Score ·
   // Team B · Event · Flight/Bracket. Sides are reconstructed from is_home (scores
   // are stored team-centric); the followed team is bolded so you can spot it.
+  // Shorten known league names to compact codes so the Event column stays narrow.
+  // Unknown names are left as-is; the full name is kept as a hover tooltip.
+  function abbrevEvent(name) {
+    const s = (name || "").trim(); if (!s) return "";
+    const l = s.toLowerCase();
+    if (/\bpre[\s-]?ecnl\b/.test(l)) return "Pre-ECNL";
+    if (/\becnl\s*rl\b/.test(l)) return "ECNL RL";
+    if (/\becnl\b/.test(l)) return "ECNL";
+    if (l.includes("national academy")) return "NAL";
+    if (l.includes("development player")) return "DPL";
+    if (l.includes("aspire")) return "Aspire";                                 // Girls Academy Aspire
+    if (l.includes("girls academy") || /\bga\b/.test(l)) return "GA";
+    if (l.includes("necsl") || l.includes("new england club soccer")) return "NECSL";
+    if (/\bedp\b/.test(l) || l.includes("eastern development")) return "N1";
+    return s;
+  }
   function gschedRow(g) {
     const done = isDone(g);
     const meName = withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "TBD";
@@ -1529,7 +1545,7 @@
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
       + '<td class="g-team">' + teamCell(B) + '</td>'
       + '<td class="g-event">'
-        + (g.event_name ? '<div class="ge-name">' + escapeHtml(g.event_name) + '</div>' : "")
+        + (g.event_name ? '<div class="ge-name" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
         + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
         + '</td>'
       + '</tr>';
