@@ -141,6 +141,21 @@ def teams_missing_games(team_ids):
     return [t for t in team_ids if str(t) not in have]
 
 
+def pending_ecnl_teams():
+    """ECNL team_ids (ecnl-<id>) with an unscored game dated today or yesterday.
+    ECNL games carry no match_time, so pending_score_teams (which is match_time
+    based) never catches them -- this date gate keeps ECNL scoring prompt in the
+    cloud, Mac-independent (yesterday covers a score that posts after midnight)."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    yest = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    r = HTTP.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+                 params={"select": "team_id", "source": "eq.ecnl",
+                         "match_date": f"in.({yest},{today})", "team_score": "is.null"},
+                 timeout=30)
+    r.raise_for_status()
+    return {str(row["team_id"]) for row in r.json()}
+
+
 def plan_sync(team_ids):
     """Decide WHICH teams this run pulls. Returns (targets, reason):
       targets is None  -> pull everyone (forced / daily full refresh / safe fallback)
@@ -158,7 +173,8 @@ def plan_sync(team_ids):
     try:
         follow = {str(t) for t in team_ids}
         missing = set(teams_missing_games(team_ids))          # just-followed -> need a first pull
-        pending = pending_score_teams(LOOKBACK_HOURS, LOOKAHEAD_HOURS) & follow
+        pending = (pending_score_teams(LOOKBACK_HOURS, LOOKAHEAD_HOURS)
+                   | pending_ecnl_teams()) & follow          # ECNL has no match_time -> date-gated
         targets = (missing | pending) & follow
         if targets:
             bits = []
