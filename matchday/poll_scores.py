@@ -7,8 +7,9 @@ org_event *schedule* pages using the session cookie that refresh_cookie.py
 harvested (plain `requests`, no browser), reads the freshest scores straight off
 the bracket -- which update the instant a score is entered, hours before the
 per-team feed the GitHub-Actions poller reads catches up -- and updates the
-`games` table. A single DB-watch notifier (notify_from_db) then pushes an ntfy
-alert for any score change, from any source, so gotSport blocking can't mute it.
+`games` table. Phone alerts are now sent by the CLOUD poller
+(poller.notify_new_scores) so they fire with this Mac asleep; the local
+notify_from_db here is an opt-in fallback only (MAC_NOTIFY=1).
 
     .venv/bin/python poll_scores.py                 # normal run (game-window gated)
     .venv/bin/python poll_scores.py --force         # ignore the window, check all of today's
@@ -19,8 +20,8 @@ Config (.env in this folder): SUPABASE_URL, SUPABASE_KEY (the sb_secret_ key),
 NTFY_TOPIC. Tunables: LOOKBACK_HOURS, LOOKAHEAD_HOURS.
 
 Scope: gotSport (via the cookie'd schedule pages) + ECNL/RL (via athleteone, no
-cookie needed; see poll_ecnl). Both only patch the games table; notify_from_db is
-the sole notifier (see below), so an alert fires even when the scrape is blocked.
+cookie needed; see poll_ecnl). Both just patch the games table; the CLOUD poller
+sends the phone alert (this Mac's notify_from_db is an opt-in fallback, MAC_NOTIFY=1).
 """
 import argparse
 import hashlib
@@ -830,14 +831,14 @@ def notify_from_db():
 def run(force=False):
     if not SUPABASE_URL or not SUPABASE_KEY:
         sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
-    # Notifier FIRST, straight from the games table: push any score that changed
-    # since the last run no matter who wrote it -- the cloud poller, ECNL, or the
-    # gotSport scrape below. Needs no cookie and runs before any gotSport call, so
-    # gotSport bot-blocking can never suppress an alert.
-    notified = notify_from_db()
-    # ECNL/gotSport below only refresh the games table; their scores are pushed by
-    # notify_from_db on the next run. ECNL first: it uses athleteone (no cookie),
-    # so a gotSport cookie problem in the block below can never delay an ECNL score.
+    # Phone alerts now fire from the CLOUD poller (poller.notify_new_scores), so
+    # they work with this Mac asleep. This local notifier stays as an opt-in
+    # fallback: set MAC_NOTIFY=1 to re-enable it -- but keep only ONE active at a
+    # time or you'll get double-pings (the two use separate dedupe stores).
+    notified = notify_from_db() if os.environ.get("MAC_NOTIFY") == "1" else 0
+    # ECNL/gotSport below refresh the games table; the cloud poller pushes their
+    # scores. ECNL first: it uses athleteone (no cookie), so a gotSport cookie
+    # problem in the block below can never delay an ECNL score reaching the DB.
     ecnl_changed = poll_ecnl(force)
     cookies = load_cookies()
     maybe_harvest_group_map(cookies)   # once/day: refresh division->group deep-link map

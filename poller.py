@@ -93,6 +93,17 @@ LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "18"))   # keep chasing an
 LOOKAHEAD_HOURS = int(os.environ.get("LOOKAHEAD_HOURS", "2"))  # warm up before kickoff
 REFRESH_HOUR_UTC = int(os.environ.get("REFRESH_HOUR_UTC", "11"))  # daily full refresh (~7am ET): catches later-posted scores + schedule changes, once a day
 
+# ---- Phone alerts (cloud-side) ---------------------------------------------
+# The buzzer lives HERE, in the cloud, so alerts fire with the Mac asleep. Dedupe
+# state is one column, games.notified_score = the "ts-os" we last pushed for that
+# game (seeded once via SQL so existing scores don't blast). NTFY_TOPIC is a
+# GitHub Actions secret; if it's unset the push step simply no-ops.
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+NOTIFY_LOOKBACK_DAYS = int(os.environ.get("NOTIFY_LOOKBACK_DAYS", "3"))
+APP_URL = os.environ.get("APP_URL", "https://www.soccerstalker.com")
+NOTIFY_FIELDS = ("match_id,team_id,team_name,team_score,opponent_name,"
+                 "opponent_score,event_name,notified_score")
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -443,6 +454,79 @@ def build_rows(team_ids):
     return list(all_rows.values())
 
 
+# --------------------------------------------------------------------------- #
+# Phone alerts: push any game whose score is new/changed since we last notified.
+# Reads only the games table, so it fires no matter how the score got there
+# (this cloud poller, the Mac, or the Sync button) and with the Mac asleep.
+# --------------------------------------------------------------------------- #
+def _ntfy(title, message, click):
+    """POST one alert to ntfy. Returns True on success. Title must be latin-1
+    (ASCII team names are fine; the soccer emoji rides in the Tags header)."""
+    headers = {"Title": title, "Tags": "soccer", "Priority": "high"}
+    if click:
+        headers["Click"] = click
+    try:
+        r = HTTP.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode("utf-8"),
+                      headers=headers, timeout=15)
+        if not r.ok:
+            print(f"  ! ntfy {r.status_code}: {r.text[:200]}")
+        return r.ok
+    except requests.RequestException as e:
+        print(f"  ! ntfy failed: {e}")
+        return False
+
+
+def _mark_notified(match_id, team_id, score):
+    """Record the score we just pushed so we never double-buzz for it."""
+    try:
+        r = HTTP.patch(f"{SUPABASE_URL}/rest/v1/games",
+                       headers={**SB_HEADERS, "Prefer": "return=minimal"},
+                       params={"match_id": f"eq.{match_id}", "team_id": f"eq.{team_id}"},
+                       json={"notified_score": score}, timeout=30)
+        return r.ok
+    except requests.RequestException as e:
+        print(f"  ! mark-notified failed: {e}")
+        return False
+
+
+def notify_new_scores():
+    """Buzz the phone for every followed game whose final score changed since we
+    last notified it. Never raises -- a hiccup just retries next run. A missing
+    NTFY_TOPIC or notified_score column no-ops cleanly (setup not finished yet)."""
+    if not NTFY_TOPIC:
+        print("  notify: NTFY_TOPIC not set; skipping push step.")
+        return
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=NOTIFY_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    try:
+        r = HTTP.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+                     params={"select": NOTIFY_FIELDS,
+                             "team_score": "not.is.null", "opponent_score": "not.is.null",
+                             "match_date": f"gte.{cutoff}"}, timeout=30)
+        r.raise_for_status()
+        rows = r.json()
+    except Exception as e:
+        print(f"  notify: games read failed ({e}); retrying next run.")
+        return
+    sent = 0
+    for g in rows:
+        ts, os_ = g.get("team_score"), g.get("opponent_score")
+        if ts is None or os_ is None:
+            continue
+        cur = f"{ts}-{os_}"
+        if g.get("notified_score") == cur:
+            continue                                    # already buzzed this exact score
+        name, opp = g.get("team_name"), g.get("opponent_name")
+        letter = "W" if ts > os_ else "L" if ts < os_ else "T"
+        title = f"{name} {ts}-{os_} {opp}"
+        where = f" · {g.get('event_name')}" if g.get("event_name") else ""
+        message = f"{letter} {ts}-{os_} vs {opp}{where}"
+        print(f"  ALERT -> {title}")
+        if _ntfy(title, message, APP_URL) and _mark_notified(g["match_id"], g["team_id"], cur):
+            sent += 1
+    if sent:
+        print(f"  notify: {sent} push(es) sent.")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     dry = "--dry-run" in sys.argv
@@ -477,23 +561,26 @@ def main():
     targets, reason = plan_sync(all_ids)
     scope = "ALL" if targets is None else ("SKIP" if not targets else f"{len(targets)} team(s)")
     print(f"Sync decision: {scope} -- {reason}")
-    if targets is not None and not targets:
-        return
-    pull_gots = gots if targets is None else [g for g in gots if g in targets]
-    pull_ecnl = ecnl if targets is None else [t for t in ecnl if f"ecnl-{t.get('ecnl_team')}" in targets]
-    rows = build_rows(pull_gots)
-    for t in pull_ecnl:
-        try:
-            er = build_ecnl_rows(t)
-            print(f"  ECNL team {t.get('ecnl_team')}: {len(er)} games")
-            rows += er
-        except Exception as e:
-            print(f"  ! ECNL team {t.get('ecnl_team')} failed: {e}")
-        time.sleep(0.3)
-    print(f"Upserting {len(rows)} game rows...")
-    for i in range(0, len(rows), 200):
-        upsert_games(rows[i:i + 200])
-    sync_clubs([r for r in rows if r.get("source") != "ecnl"])
+    if targets is None or targets:                     # ALL, or a specific set of teams
+        pull_gots = gots if targets is None else [g for g in gots if g in targets]
+        pull_ecnl = ecnl if targets is None else [t for t in ecnl if f"ecnl-{t.get('ecnl_team')}" in targets]
+        rows = build_rows(pull_gots)
+        for t in pull_ecnl:
+            try:
+                er = build_ecnl_rows(t)
+                print(f"  ECNL team {t.get('ecnl_team')}: {len(er)} games")
+                rows += er
+            except Exception as e:
+                print(f"  ! ECNL team {t.get('ecnl_team')} failed: {e}")
+            time.sleep(0.3)
+        print(f"Upserting {len(rows)} game rows...")
+        for i in range(0, len(rows), 200):
+            upsert_games(rows[i:i + 200])
+        sync_clubs([r for r in rows if r.get("source") != "ecnl"])
+    # Buzz the phone for any new/changed score. Runs on EVERY invocation (even a
+    # SKIP) so a score that landed on a prior run still goes out -- and it works
+    # with the Mac asleep, which is the whole point.
+    notify_new_scores()
     print("Done.")
 
 

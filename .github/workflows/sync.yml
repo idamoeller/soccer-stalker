@@ -23,6 +23,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}   # phone-alert topic (add in repo Settings > Secrets)
           # Manual "Run workflow" always does a full pull; scheduled runs decide
           # for themselves (poller.should_sync) whether a game is near.
           FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
