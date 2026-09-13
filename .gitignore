@@ -9,3 +9,4 @@ matchday/cookies.json
 matchday/*.log
 matchday/.group_harvest
 matchday/.cookie_refresh
+matchday/.score_state.json

@@ -6,8 +6,9 @@ Reads which games we care about from Supabase, fetches the relevant gotSport
 org_event *schedule* pages using the session cookie that refresh_cookie.py
 harvested (plain `requests`, no browser), reads the freshest scores straight off
 the bracket -- which update the instant a score is entered, hours before the
-per-team feed the GitHub-Actions poller reads catches up -- and when a followed
-team's score changes it updates the `games` table and fires an ntfy push.
+per-team feed the GitHub-Actions poller reads catches up -- and updates the
+`games` table. A single DB-watch notifier (notify_from_db) then pushes an ntfy
+alert for any score change, from any source, so gotSport blocking can't mute it.
 
     .venv/bin/python poll_scores.py                 # normal run (game-window gated)
     .venv/bin/python poll_scores.py --force         # ignore the window, check all of today's
@@ -18,7 +19,8 @@ Config (.env in this folder): SUPABASE_URL, SUPABASE_KEY (the sb_secret_ key),
 NTFY_TOPIC. Tunables: LOOKBACK_HOURS, LOOKAHEAD_HOURS.
 
 Scope: gotSport (via the cookie'd schedule pages) + ECNL/RL (via athleteone, no
-cookie needed; see poll_ecnl). Both patch the games table and fire an ntfy push.
+cookie needed; see poll_ecnl). Both only patch the games table; notify_from_db is
+the sole notifier (see below), so an alert fires even when the scrape is blocked.
 """
 import argparse
 import hashlib
@@ -41,6 +43,7 @@ COOKIE_FILE = os.path.join(HERE, "cookies.json")
 REFRESH_SCRIPT = os.path.join(HERE, "refresh_cookie.py")
 GROUP_HARVEST_STATE = os.path.join(HERE, ".group_harvest")   # last date we mapped division->group
 COOKIE_REFRESH_STATE = os.path.join(HERE, ".cookie_refresh")  # last self-heal attempt (rate-limit)
+SCORE_STATE = os.path.join(HERE, ".score_state.json")        # last-notified score per game (DB-watch)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -51,6 +54,9 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 # tiny Supabase reads and an exit.
 LOOKBACK_HOURS = int(os.environ.get("LOOKBACK_HOURS", "5"))
 LOOKAHEAD_HOURS = int(os.environ.get("LOOKAHEAD_HOURS", "2"))
+# DB-watch notifier: how many days back to watch the games table for score changes
+# (wide enough to catch a weekend score the cloud feed posts a day or two late).
+NOTIFY_LOOKBACK_DAYS = int(os.environ.get("NOTIFY_LOOKBACK_DAYS", "3"))
 COOKIE_MAX_AGE_HOURS = float(os.environ.get("COOKIE_MAX_AGE_HOURS", "30"))
 # self-heal: don't spawn a refresh browser more than once per this many minutes
 COOKIE_REFRESH_COOLDOWN_MIN = float(os.environ.get("COOKIE_REFRESH_COOLDOWN_MIN", "30"))
@@ -384,7 +390,7 @@ def notify(game, ts, os_, label, click_url=None):
     message = f"{letter} {ts}-{os_} vs {opp}{where}"
     print(f"    ALERT -> {title} | {message}")
     if not NTFY_TOPIC:
-        return
+        return False
     # ⚽ leads the alert (the "soccer" tag renders as an emoji before the title).
     # "Click" makes tapping the alert open the live page -- prefer the exact page we
     # scored from (the right conference), falling back to the age+gender page.
@@ -395,8 +401,10 @@ def notify(game, ts, os_, label, click_url=None):
     try:
         requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode("utf-8"),
                       headers=headers, timeout=15)
+        return True
     except requests.RequestException as e:
         print(f"    (ntfy failed: {e})")
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -522,8 +530,7 @@ def discover(parsed, ev, idx, labels, dry=False, ignore_date=False):
             if insert_game(row):                           # deterministic disc- id + upsert => no double-insert
                 added += 1
                 print(f"    DISCOVERED+ADDED: {idx['disp'].get(tid, tid)} {sc} vs {opp} ({d})")
-                if ts is not None and os_ is not None:
-                    notify(row, ts, os_, labels.get(str(ev)))
+                # a discovered game that already has a score is pushed by notify_from_db next run
     return added
 
 
@@ -737,8 +744,7 @@ def poll_ecnl(force=False):
                       f"{g.get('team_score') if g else None}-{g.get('opponent_score') if g else None}"
                       f" -> {ts}-{os_} vs {info['opponent_name']}")
                 patch_score(r["match_id"], r["team_id"], ts, os_)
-                notify(info, ts, os_, None, click_url=ecnl_click(info))
-                changed += 1
+                changed += 1                                # pushed by notify_from_db on the next run
             time.sleep(0.3)                                    # be polite to athleteone
         return changed
     except Exception as e:
@@ -747,13 +753,91 @@ def poll_ecnl(force=False):
 
 
 # --------------------------------------------------------------------------- #
+# DB-watch notifier (the ONLY notifier)
+#
+# Pushes an ntfy alert for every followed game whose final score is new or changed
+# since the last run -- no matter which pipeline wrote it: this Mac's gotSport
+# scrape, the ECNL feed, or the cloud GitHub-Actions poller. It reads ONLY the
+# games table (no gotSport cookie) and runs first in run(), so gotSport
+# bot-blocking can never silence an alert again. Dedupe/replay is a tiny local
+# snapshot of the last score we pushed per game.
+# --------------------------------------------------------------------------- #
+def load_score_state():
+    """Return (last-notified {game_key: "ts-os"}, existed?). existed=False only on
+    the very first run -> we seed silently instead of blasting the whole history."""
+    try:
+        with open(SCORE_STATE) as f:
+            return json.load(f), True
+    except FileNotFoundError:
+        return {}, False
+    except Exception as e:
+        print(f"  DB-watch: score-state unreadable, reseeding ({e}).")
+        return {}, False
+
+
+def save_score_state(state):
+    try:
+        tmp = SCORE_STATE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, SCORE_STATE)                       # atomic: never a half-written state
+    except Exception as e:
+        print(f"  DB-watch: could not write score-state ({e}).")
+
+
+def notify_from_db():
+    """Fire a push for any newly-scored/changed followed game in the games table.
+    Returns the number of pushes sent. Never lets a Supabase hiccup take the run
+    down -- the score stays in the DB and we simply try again next cycle."""
+    cutoff = (datetime.now() - timedelta(days=NOTIFY_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    try:
+        rows = sb_get("games", {"select": GAME_FIELDS + ",source",
+                                "team_score": "not.is.null", "opponent_score": "not.is.null",
+                                "match_date": f"gte.{cutoff}"})
+    except Exception as e:
+        print(f"  DB-watch: games read failed ({e}); retrying next run.")
+        return 0
+
+    state, existed = load_score_state()
+    labels = watch_labels() if existed else {}             # skip the extra read on the silent seed
+    sent = 0
+    for g in rows:
+        ts, os_ = g.get("team_score"), g.get("opponent_score")
+        if ts is None or os_ is None:
+            continue
+        key, cur = f"{g.get('match_id')}|{g.get('team_id')}", f"{ts}-{os_}"
+        if state.get(key) == cur:
+            continue                                       # already pushed this exact score
+        if not existed:
+            state[key] = cur                               # first run ever: seed, don't alert on history
+            continue
+        label = labels.get(str(g.get("event_id"))) if g.get("event_id") else None
+        click = ecnl_click(g) if g.get("source") == "ecnl" else game_url(g)
+        if notify(g, ts, os_, label, click_url=click):
+            state[key] = cur                               # record only after a real push (else retry next run)
+            sent += 1
+    save_score_state(state)
+    if not existed:
+        print(f"  DB-watch: seeded {len(state)} scored game(s) silently (first run).")
+    elif sent:
+        print(f"  DB-watch: {sent} push(es) sent.")
+    return sent
+
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 def run(force=False):
     if not SUPABASE_URL or not SUPABASE_KEY:
         sys.exit("SUPABASE_URL and SUPABASE_KEY must be set in .env.")
-    # ECNL first: it uses athleteone (no gotSport cookie), so a gotSport cookie
-    # problem in the block below can never suppress an ECNL alert.
+    # Notifier FIRST, straight from the games table: push any score that changed
+    # since the last run no matter who wrote it -- the cloud poller, ECNL, or the
+    # gotSport scrape below. Needs no cookie and runs before any gotSport call, so
+    # gotSport bot-blocking can never suppress an alert.
+    notified = notify_from_db()
+    # ECNL/gotSport below only refresh the games table; their scores are pushed by
+    # notify_from_db on the next run. ECNL first: it uses athleteone (no cookie),
+    # so a gotSport cookie problem in the block below can never delay an ECNL score.
     ecnl_changed = poll_ecnl(force)
     cookies = load_cookies()
     maybe_harvest_group_map(cookies)   # once/day: refresh division->group deep-link map
@@ -766,7 +850,8 @@ def run(force=False):
             seen[(g["match_id"], g["team_id"])] = g
         games = list(seen.values())
     if not games:
-        print(f"No gotSport games in the window right now. (ECNL: {ecnl_changed} update(s).)")
+        print(f"No gotSport games in the window right now. "
+              f"(ECNL: {ecnl_changed} DB update(s); notifier: {notified} push(es).)")
         return
     # We have games to score -> make sure the cookie is fresh enough to read them.
     # (Self-heals a missed 3am refresh; only runs when there's actually work to do.)
@@ -817,11 +902,11 @@ def run(force=False):
             print(f"    {g['team_name']} {g.get('team_score')}-{g.get('opponent_score')}"
                   f" -> {ts}-{os_} vs {g['opponent_name']}")
             patch_score(g["match_id"], g["team_id"], ts, os_)
-            notify(g, ts, os_, labels.get(ev), click_url=url)
-            changed += 1
+            changed += 1                                    # pushed by notify_from_db on the next run
         discovered += discover(parsed, ev, idx, labels)    # add day-of games we don't have yet
         time.sleep(0.4)                                    # be polite to gotSport
-    print(f"Done. {changed} gotSport + {ecnl_changed} ECNL score update(s), {discovered} discovered.")
+    print(f"Done. {changed} gotSport + {ecnl_changed} ECNL DB update(s), "
+          f"{discovered} discovered, {notified} push(es) sent.")
 
 
 def main():
