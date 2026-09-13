@@ -101,7 +101,8 @@ REFRESH_HOUR_UTC = int(os.environ.get("REFRESH_HOUR_UTC", "11"))  # daily full r
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 NOTIFY_LOOKBACK_DAYS = int(os.environ.get("NOTIFY_LOOKBACK_DAYS", "3"))
 APP_URL = os.environ.get("APP_URL", "https://www.soccerstalker.com")
-NOTIFY_FIELDS = ("match_id,team_id,team_name,team_score,opponent_name,"
+APP_TODAY_URL = APP_URL.rstrip("/") + "/?tf=today"   # a phone alert's button deep-links here
+NOTIFY_FIELDS = ("match_id,team_id,team_name,team_score,opponent_id,opponent_name,"
                  "opponent_score,event_name,notified_score")
 
 
@@ -459,12 +460,13 @@ def build_rows(team_ids):
 # Reads only the games table, so it fires no matter how the score got there
 # (this cloud poller, the Mac, or the Sync button) and with the Mac asleep.
 # --------------------------------------------------------------------------- #
-def _ntfy(title, message, click):
-    """POST one alert to ntfy. Returns True on success. Title must be latin-1
-    (ASCII team names are fine; the soccer emoji rides in the Tags header)."""
-    headers = {"Title": title, "Tags": "soccer", "Priority": "high"}
-    if click:
-        headers["Click"] = click
+def _ntfy(title, message):
+    """POST one alert to ntfy. No Click is set, so tapping the notification opens
+    the ntfy APP; the 'Open Soccer Stalker' action button deep-links to the Today
+    page (not gotSport). Returns True on success. Headers must be latin-1 (ASCII
+    team names are fine; the soccer emoji rides in the Tags header)."""
+    headers = {"Title": title, "Tags": "soccer", "Priority": "high",
+               "Actions": f"view, Open Soccer Stalker, {APP_TODAY_URL}, clear=true"}
     try:
         r = HTTP.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode("utf-8"),
                       headers=headers, timeout=15)
@@ -489,6 +491,32 @@ def _mark_notified(match_id, team_id, score):
         return False
 
 
+def _club_names():
+    """team_id -> club_name, to club-qualify the bare gotSport division names the
+    same way the website does (New England Force N1 G2013/14, not just N1 ...)."""
+    out = {}
+    try:
+        r = HTTP.get(f"{SUPABASE_URL}/rest/v1/clubs", headers=SB_HEADERS,
+                     params={"select": "team_id,club_name"}, timeout=30)
+        if r.ok:
+            for c in r.json():
+                tid = str(c.get("team_id") or "").strip()
+                nm = (c.get("club_name") or "").strip()
+                if tid and nm:
+                    out[tid] = nm
+    except requests.RequestException:
+        pass
+    return out
+
+
+def _with_club(club, name):
+    """Prefix the club unless it's already in the bare name (mirrors withClub)."""
+    name = (name or "").strip()
+    if name and club and club.lower() not in name.lower():
+        return f"{club} {name}"
+    return name
+
+
 def notify_new_scores():
     """Buzz the phone for every followed game whose final score changed since we
     last notified it. Never raises -- a hiccup just retries next run. A missing
@@ -507,6 +535,7 @@ def notify_new_scores():
     except Exception as e:
         print(f"  notify: games read failed ({e}); retrying next run.")
         return
+    clubs = _club_names()                                # team_id -> club, for full names
     sent = 0
     for g in rows:
         ts, os_ = g.get("team_score"), g.get("opponent_score")
@@ -515,13 +544,14 @@ def notify_new_scores():
         cur = f"{ts}-{os_}"
         if g.get("notified_score") == cur:
             continue                                    # already buzzed this exact score
-        name, opp = g.get("team_name"), g.get("opponent_name")
+        name = _with_club(clubs.get(str(g.get("team_id"))), g.get("team_name"))
+        opp = _with_club(clubs.get(str(g.get("opponent_id"))), g.get("opponent_name"))
         letter = "W" if ts > os_ else "L" if ts < os_ else "T"
         title = f"{name} {ts}-{os_} {opp}"
         where = f" · {g.get('event_name')}" if g.get("event_name") else ""
         message = f"{letter} {ts}-{os_} vs {opp}{where}"
         print(f"  ALERT -> {title}")
-        if _ntfy(title, message, APP_URL) and _mark_notified(g["match_id"], g["team_id"], cur):
+        if _ntfy(title, message) and _mark_notified(g["match_id"], g["team_id"], cur):
             sent += 1
     if sent:
         print(f"  notify: {sent} push(es) sent.")

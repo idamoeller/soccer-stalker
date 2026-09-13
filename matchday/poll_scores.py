@@ -49,6 +49,7 @@ SCORE_STATE = os.path.join(HERE, ".score_state.json")        # last-notified sco
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+APP_TODAY_URL = os.environ.get("APP_URL", "https://www.soccerstalker.com").rstrip("/") + "/?tf=today"
 
 # Only touch an event when one of its games is near kickoff. Wide enough to cover
 # a long match plus score-entry lag; narrow enough that off-hours runs are two
@@ -382,9 +383,28 @@ def game_url(game):
     return schedule_url(ev, age, gender)
 
 
-def notify(game, ts, os_, label, click_url=None):
-    name = game["team_name"]
-    opp = game["opponent_name"]
+def _club_names():
+    """team_id -> club_name, to club-qualify the bare gotSport division names the
+    same way the website does (mirrors withClub)."""
+    out = {}
+    for c in sb_get("clubs", {"select": "team_id,club_name"}, required=False):
+        tid = str(c.get("team_id") or "").strip()
+        nm = (c.get("club_name") or "").strip()
+        if tid and nm:
+            out[tid] = nm
+    return out
+
+
+def _with_club(club, name):
+    name = (name or "").strip()
+    if name and club and club.lower() not in name.lower():
+        return f"{club} {name}"
+    return name
+
+
+def notify(game, ts, os_, label, name=None, opp=None):
+    name = name or game.get("team_name")
+    opp = opp or game.get("opponent_name")
     letter = "W" if ts > os_ else "L" if ts < os_ else "T"
     title = f"{name} {ts}-{os_} {opp}"
     where = f" · {label}" if label else (f" · {game.get('event_name')}" if game.get("event_name") else "")
@@ -392,13 +412,10 @@ def notify(game, ts, os_, label, click_url=None):
     print(f"    ALERT -> {title} | {message}")
     if not NTFY_TOPIC:
         return False
-    # ⚽ leads the alert (the "soccer" tag renders as an emoji before the title).
-    # "Click" makes tapping the alert open the live page -- prefer the exact page we
-    # scored from (the right conference), falling back to the age+gender page.
-    headers = {"Title": title, "Tags": "soccer", "Priority": "high"}
-    url = click_url or game_url(game)
-    if url:
-        headers["Click"] = url
+    # No Click -> tapping the alert opens the ntfy app; the action button
+    # deep-links to the Soccer Stalker Today page (not gotSport).
+    headers = {"Title": title, "Tags": "soccer", "Priority": "high",
+               "Actions": f"view, Open Soccer Stalker, {APP_TODAY_URL}, clear=true"}
     try:
         requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode("utf-8"),
                       headers=headers, timeout=15)
@@ -800,7 +817,8 @@ def notify_from_db():
         return 0
 
     state, existed = load_score_state()
-    labels = watch_labels() if existed else {}             # skip the extra read on the silent seed
+    labels = watch_labels() if existed else {}             # skip the extra reads on the silent seed
+    clubs = _club_names() if existed else {}               # team_id -> club, for full names
     sent = 0
     for g in rows:
         ts, os_ = g.get("team_score"), g.get("opponent_score")
@@ -813,8 +831,9 @@ def notify_from_db():
             state[key] = cur                               # first run ever: seed, don't alert on history
             continue
         label = labels.get(str(g.get("event_id"))) if g.get("event_id") else None
-        click = ecnl_click(g) if g.get("source") == "ecnl" else game_url(g)
-        if notify(g, ts, os_, label, click_url=click):
+        name = _with_club(clubs.get(str(g.get("team_id"))), g.get("team_name"))
+        opp = _with_club(clubs.get(str(g.get("opponent_id"))), g.get("opponent_name"))
+        if notify(g, ts, os_, label, name=name, opp=opp):
             state[key] = cur                               # record only after a real push (else retry next run)
             sent += 1
     save_score_state(state)

@@ -703,6 +703,12 @@
       if (Array.isArray(saved.hiddenTeams)) hiddenTeams = new Set(saved.hiddenTeams.map(String));
     }
   } catch (e) {}
+  // A phone alert links to "?tf=today" -> force that timeframe on open (overrides
+  // the saved one for this load only; not persisted).
+  try {
+    const _tf = new URLSearchParams(location.search).get("tf");
+    if (_tf === "today" || _tf === "upcoming" || _tf === "past") timeframe = _tf;
+  } catch (e) {}
   function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, timeframe, pastWeeks, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
 
   // ---------- helpers ----------
