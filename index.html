@@ -173,8 +173,16 @@
     color:var(--ink);font-variant-numeric:tabular-nums;padding-left:12px;padding-right:12px;}
   .gsched .g-event{max-width:180px;font-size:12px;color:var(--ink-2);line-height:1.25;padding-left:12px;}
   .gsched .ge-flight{font-size:11px;color:var(--muted-2);line-height:1.2;margin-top:2px;}
-  .gsched .lrow{cursor:pointer;}
+  .gsched .lrow{cursor:default;}
+  /* only the clickable cells get a pointer: team -> in-app team games, event -> gotSport */
+  .gsched td[data-teamkey], .gsched td.g-event{cursor:pointer;}
+  .gsched td[data-teamkey]:hover .gtname{text-decoration:underline;}
   .gsched .lrow:hover td{background:#f7f7f4;}
+  /* "showing one team" banner (opened by clicking a team in the combined view) */
+  .focusbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 14px;padding:9px 13px;
+    background:var(--mine);border:1px solid var(--accent-soft);border-radius:9px;font-family:var(--sans);font-size:13.5px;color:var(--ink);}
+  .focusbar b{font-weight:600;}
+  .focusclear{border:0;background:none;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap;}
   /* day separator: one full-width heading row per day, so each day reads as a block */
   .gsched tr.gday td{padding:16px 0 5px;border-bottom:1px solid var(--rule-strong);}
   .gsched tbody tr.gday:first-child td{padding-top:2px;}
@@ -692,6 +700,7 @@
   let timeframe = "upcoming";                                // "today" | "upcoming" | "past" (mutually exclusive)
   let pastWeeks = 8;                                         // "Past" lookback window, in weeks
   let hiddenTeams = new Set();                               // team_ids whose games are hidden
+  let focusTeam = null;                                      // when set (via ?team=), show only this team's games
   function clampWeeks(n) { n = Math.round(Number(n)); return n < 1 ? 1 : (n > 52 ? 52 : n); }
   try {
     const saved = JSON.parse(localStorage.getItem("ss:view") || "null");
@@ -709,7 +718,20 @@
     const _tf = new URLSearchParams(location.search).get("tf");
     if (_tf === "today" || _tf === "upcoming" || _tf === "past") timeframe = _tf;
   } catch (e) {}
+  // A team link (from clicking a team in the combined view) opens "?team=<key>"
+  // in a new tab -> show just that team's games. Transient, never persisted.
+  try {
+    const _tm = new URLSearchParams(location.search).get("team");
+    if (_tm) focusTeam = String(_tm);
+  } catch (e) {}
   function saveView() { try { localStorage.setItem("ss:view", JSON.stringify({ groupMode, viewMode, timeframe, pastWeeks, hiddenTeams: [...hiddenTeams] })); } catch (e) {} }
+  // leave the single-team view: drop the focus, strip ?team= from the URL, re-render.
+  function clearFocus() {
+    if (!focusTeam) return;
+    focusTeam = null;
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+    renderGames();
+  }
 
   // ---------- helpers ----------
   function escapeHtml(s) {
@@ -1582,12 +1604,18 @@
     const homeCls = 'g-team g-home' + winCls(as_, bs) + barCls(as_, bs) + (A.me ? ' gme' : '');
     const awayCls = 'g-team g-away' + winCls(bs, as_) + barCls(bs, as_) + (B.me ? ' gme' : '');
     const score = done ? (as_ + ' - ' + bs) : '—';
-    return '<tr class="lrow" data-url="' + escapeHtml(gameUrl(g)) + '">'
+    // A team cell links to that team's own games inside Soccer Stalker (followed
+    // teams only — the left team always, a followed opponent too). The Event cell
+    // links out to the gotSport page. Time and Score are not clickable.
+    const aKey = groupKeyOf(g.team_id);
+    const bKey = B.me ? groupKeyOf(g.opponent_id) : null;
+    const teamAttrs = key => key ? ' data-teamkey="' + escapeHtml(key) + '" title="See this team’s games"' : '';
+    return '<tr class="lrow">'
       + '<td class="g-date">' + timeCell + '</td>'
-      + '<td class="' + homeCls + '"' + (A.me ? ' title="Team you follow"' : '') + '>' + teamCell(A) + '</td>'
+      + '<td class="' + homeCls + '"' + teamAttrs(aKey) + '>' + teamCell(A) + '</td>'
       + '<td class="g-score">' + escapeHtml(score) + '</td>'
-      + '<td class="' + awayCls + '"' + (B.me ? ' title="Team you follow"' : '') + '>' + teamCell(B) + '</td>'
-      + '<td class="g-event">'
+      + '<td class="' + awayCls + '"' + teamAttrs(bKey) + '>' + teamCell(B) + '</td>'
+      + '<td class="g-event" data-url="' + escapeHtml(gameUrl(g)) + '" title="Open on gotSport">'
         + (g.event_name ? '<div class="ge-name" title="' + escapeHtml(g.event_name) + '">' + escapeHtml(abbrevEvent(g.event_name)) + '</div>' : "")
         + (g.division_name ? '<div class="ge-flight">' + escapeHtml(g.division_name) + '</div>' : "")
         + '</td>'
@@ -1716,6 +1744,11 @@
       + '<div class="when">' + meta + '</div></a>';
   }
 
+  // banner shown above the games when focused on a single team (via ?team=)
+  function focusBar() {
+    return '<div class="focusbar"><span>Showing <b>' + escapeHtml(groupLabel(focusTeam)) + '</b></span>'
+      + '<button type="button" class="focusclear" data-focusclear>show all teams</button></div>';
+  }
   let gamesShown = 0;
   function renderGames() {
     const el = $("games");
@@ -1731,17 +1764,20 @@
       const d = gameDate(g);                         // past: only within the lookback window
       return !d || d.getTime() >= cutoff;
     };
-    const list = allGames.filter(g => !isPlaceholder(g) && !isPhantom(g) && !hiddenTeams.has(groupKeyOf(g.team_id)) && inScope(g)).sort((a, b) => {
+    // focused on one team -> only its games (ignoring the hidden-teams filter); otherwise honor hidden teams
+    const teamOk = g => focusTeam ? groupKeyOf(g.team_id) === focusTeam : !hiddenTeams.has(groupKeyOf(g.team_id));
+    const list = allGames.filter(g => !isPlaceholder(g) && !isPhantom(g) && teamOk(g) && inScope(g)).sort((a, b) => {
       const da = gameDate(a), db = gameDate(b);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
       return past ? db - da : da - db;          // past: newest first · today/upcoming: soonest first
     });
     gamesShown = list.length;
-    if (!list.length) { el.innerHTML = '<div class="empty">' + (today ? 'no games today' : past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
-    if (groupMode === "combined") {
+    const banner = focusTeam ? focusBar() : "";
+    if (!list.length) { el.innerHTML = banner + '<div class="empty">' + (today ? 'no games today' : past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
+    if (groupMode === "combined" && !focusTeam) {
       const clist = dedupeDerbies(list);   // one row per matchup when two followed teams meet
       el.innerHTML = compact ? ledgerTable(clist, true) : clist.map(g => gameRow(g)).join("");
-    } else {
+    } else {   // by-team bands (also the single-team focus view)
       // group by LINKED-team key, so two follows for one real team merge into one band
       const byGroup = {};
       for (const g of list) (byGroup[groupKeyOf(g.team_id)] ||= []).push(g);
@@ -1750,7 +1786,7 @@
         const ia = order.indexOf(a[0]), ib = order.indexOf(b[0]);
         return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
       });
-      el.innerHTML = entries.map(([key, gs]) =>
+      el.innerHTML = banner + entries.map(([key, gs]) =>
         '<div class="teamblock">' + bandHtml(key, gs)
         + (compact ? ledgerTable(gs, false) : gs.map(g => gameRow(g)).join("")) + '</div>'
       ).join("");
@@ -2507,7 +2543,7 @@
     $("menuBtn").setAttribute("aria-expanded", String(willOpen));
   });
   $("navMenu").addEventListener("click", e => e.stopPropagation());
-  document.querySelectorAll(".navitem, .tabnav").forEach(b => b.addEventListener("click", () => showView(b.dataset.nav)));
+  document.querySelectorAll(".navitem, .tabnav").forEach(b => b.addEventListener("click", () => { clearFocus(); showView(b.dataset.nav); }));
 
   // view-toggle popover (grouping / density / range) opened from the left summary text
   $("viewSummaryBtn").addEventListener("click", (e) => {
@@ -2554,10 +2590,15 @@
     pastWeeks = clampWeeks(pastWeeks + parseInt(b.dataset.pw, 10));
     saveView(); syncControls(); renderGames();
   }));
-  // open a ledger row's source page
+  // games clicks: "show all teams" clears focus; a team cell opens that team's
+  // games in a new tab (in-app); anything else carrying data-url (the combined
+  // Event cell, or a whole by-team ledger row) opens its gotSport page.
   $("games").addEventListener("click", e => {
-    const tr = e.target.closest(".lrow[data-url]");
-    if (tr) window.open(tr.dataset.url, "_blank", "noopener");
+    if (e.target.closest("[data-focusclear]")) { clearFocus(); return; }
+    const tk = e.target.closest("[data-teamkey]");
+    if (tk) { window.open(location.pathname + "?team=" + encodeURIComponent(tk.dataset.teamkey), "_blank", "noopener"); return; }
+    const link = e.target.closest("[data-url]");
+    if (link) window.open(link.dataset.url, "_blank", "noopener");
   });
   syncControls();
 
