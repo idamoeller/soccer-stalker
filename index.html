@@ -854,6 +854,9 @@
     return row ? String(row.group_id || row.team_id) : String(t);
   }
   function groupMembers(key) { return teamsCache.filter(x => groupKeyOf(x) === String(key)); }
+  // is this team id one you currently follow? used to shade a followed opponent
+  // blue too and to de-duplicate a game where two followed teams play each other.
+  function isFollowedId(id) { return id != null && teamsCache.some(x => String(x.team_id) === String(id)); }
   function groupPrimary(key) {
     const members = groupMembers(key);
     return members.find(x => String(x.team_id) === String(key)) || members[0] || null;
@@ -1538,9 +1541,9 @@
       + '<td class="l-event">' + escapeHtml(ev) + '</td>'
       + '</tr>';
   }
-  // Combined + compact = a gotSport-style schedule table: Date · Team A · Score ·
-  // Team B · Event · Flight/Bracket. Sides are reconstructed from is_home (scores
-  // are stored team-centric); the followed team is bolded so you can spot it.
+  // Combined + compact = a gotSport-style schedule table: Time · Team A · Score ·
+  // Team B · Event · Flight/Bracket. The team you follow always sits on the LEFT
+  // (side A) so you can eyeball straight down the list; the winner is bolded.
   // Shorten known league names to compact codes so the Event column stays narrow.
   // Unknown names are left as-is; the full name is kept as a hover tooltip.
   function abbrevEvent(name) {
@@ -1561,16 +1564,12 @@
     const done = isDone(g);
     const meName = withClub(g.team_id, g.team_name) || teamNick(g.team_id) || "TBD";
     const oppName = withClub(g.opponent_id, g.opponent_name) || "TBD";
-    let A, B, as_, bs;                                   // A = Team A (home side), B = Team B (away side)
-    if (g.is_home) {
-      A = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
-      B = { name: oppName, logo: oppSideLogo(g), me: false };
-      as_ = g.team_score; bs = g.opponent_score;
-    } else {
-      A = { name: oppName, logo: oppSideLogo(g), me: false };
-      B = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
-      as_ = g.opponent_score; bs = g.team_score;
-    }
+    // followed team is always side A (left); opponent is side B (right). Scores
+    // are stored team-centric, so the left score is always your team's. If the
+    // opponent is a team you follow too, mark it so both sides shade blue.
+    const A = { name: meName, logo: sideLogo(g.team_logo, g.team_id), me: true };
+    const B = { name: oppName, logo: oppSideLogo(g), me: isFollowedId(g.opponent_id) };
+    const as_ = g.team_score, bs = g.opponent_score;
     const kt = ledTime(g);   // the day-header row carries the date; each row shows just the kickoff time
     // upcoming games with no posted time (common for ECNL until a fixture is finalized) show a muted TBD
     const timeCell = kt ? escapeHtml(kt) : (isPast(g) ? "" : '<span class="ttbd">TBD</span>');
@@ -1621,6 +1620,22 @@
       + '</tr></thead><tbody>'
       + body
       + '</tbody></table></div>';
+  }
+  // When two teams you follow play each other, both teams' feeds report the game,
+  // so it arrives as a mirror pair (one row centered on each of the two teams).
+  // Collapse those to a single row. A game against a non-followed opponent never
+  // duplicates, so it always passes through. Key on the unordered team pair + day
+  // + event, so a rare same-day double-header between the two stays two rows.
+  function dedupeDerbies(games) {
+    const seen = new Set();
+    return games.filter(g => {
+      if (!isFollowedId(g.opponent_id)) return true;
+      const pair = [groupKeyOf(g.team_id), groupKeyOf(g.opponent_id)].sort().join("~");
+      const k = pair + "|" + dayKey(g) + "|" + String(g.event_id || "");
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
   }
   function ledgerTable(games, combined) {
     if (combined) return combinedTable(games);           // gotSport-style home/away table
@@ -1724,7 +1739,8 @@
     gamesShown = list.length;
     if (!list.length) { el.innerHTML = '<div class="empty">' + (today ? 'no games today' : past ? 'no games in the last ' + pastWeeks + ' weeks' : 'no upcoming games') + '</div>'; updateTfLabel(); return; }
     if (groupMode === "combined") {
-      el.innerHTML = compact ? ledgerTable(list, true) : list.map(g => gameRow(g)).join("");
+      const clist = dedupeDerbies(list);   // one row per matchup when two followed teams meet
+      el.innerHTML = compact ? ledgerTable(clist, true) : clist.map(g => gameRow(g)).join("");
     } else {
       // group by LINKED-team key, so two follows for one real team merge into one band
       const byGroup = {};
