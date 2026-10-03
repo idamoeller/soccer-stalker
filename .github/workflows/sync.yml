@@ -2,8 +2,13 @@ name: Sync scores
 
 on:
   schedule:
-    - cron: "*/10 * * * *"    # every 10 minutes (UTC); adjust as you like
-  workflow_dispatch:           # lets you run it on demand from the Actions tab
+    - cron: "*/10 * * * *"    # GitHub's own clock (UTC) -- best-effort only: it can skip hours at a time (3 runs all day on 2026-10-03), so it's just the backup now
+  workflow_dispatch:           # the reliable clock: Supabase pg_cron dispatches this every 10 min; also the Actions tab's "Run workflow" button
+    inputs:
+      full:
+        description: "Pull every team (full refresh)"
+        type: boolean
+        default: true
 
 # Don't pile up overlapping runs
 concurrency:
@@ -24,7 +29,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}   # phone-alert topic (add in repo Settings > Secrets)
-          # Manual "Run workflow" always does a full pull; scheduled runs decide
-          # for themselves (poller.should_sync) whether a game is near.
-          FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          # "Run workflow" from the Actions tab pulls every team (box ticked by
+          # default). The Supabase clock dispatches with full=false, so those runs
+          # -- like GitHub's own schedule -- let poller.plan_sync decide whether
+          # a game is near.
+          FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.full && '1' || '0' }}
         run: python poller.py
