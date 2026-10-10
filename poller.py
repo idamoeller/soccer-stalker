@@ -134,10 +134,18 @@ def teams_missing_games(team_ids):
     """Followed teams that have no games stored yet (just added -> pull now)."""
     if not team_ids:
         return []
-    r = HTTP.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
-                     params={"select": "team_id"}, timeout=30)
-    r.raise_for_status()
-    have = {str(row["team_id"]) for row in r.json()}
+    # Supabase caps each response at 1000 rows, so page until a short page
+    have, page, offset = set(), 1000, 0
+    while True:
+        r = HTTP.get(f"{SUPABASE_URL}/rest/v1/games", headers=SB_HEADERS,
+                     params={"select": "team_id", "order": "match_id,team_id",
+                             "offset": offset, "limit": page}, timeout=30)
+        r.raise_for_status()
+        rows = r.json()
+        have.update(str(row["team_id"]) for row in rows)
+        if len(rows) < page:
+            break
+        offset += page
     return [t for t in team_ids if str(t) not in have]
 
 
