@@ -765,8 +765,14 @@
   }
   // Real gotSport name (club + team name), from the team's own games — used as the
   // primary label so a user's nickname doesn't hide which team it actually is.
+  // gotSport renames teams each season and old games keep the old name, so use
+  // the name on the team's latest game, not whichever game happens to come first.
   function teamRealName(teamId) {
-    const g = allGames.find(x => String(x.team_id) === String(teamId) && x.team_name);
+    let g = null;
+    for (const x of allGames) {
+      if (String(x.team_id) !== String(teamId) || !x.team_name) continue;
+      if (!g || (x.match_date || "") > (g.match_date || "")) g = x;
+    }
     return g ? withClub(teamId, g.team_name) : null;
   }
   // The user's custom nickname, only when it differs from the real name (else null).
@@ -1837,16 +1843,18 @@
       const followed = followedInEvent(ev);
       const watched = watchTeams.filter(w => String(w.event_id) === ev);
       const watchedNames = new Set(watched.map(w => (w.team_name || "").toLowerCase()));
+      const watchedIds = new Set(watched.filter(w => w.team_id).map(w => String(w.team_id)));
       const link = "https://system.gotsport.com/org_event/events/" + ev + "/schedules" + (t.group_id ? "?group=" + t.group_id : "");
       // followed teams in this event -> checkboxes (checked if being watched)
       const folRows = followed.map(f => {
-        const on = watchedNames.has((f.name || "").toLowerCase());
+        const on = watchedIds.has(String(f.team_id)) || watchedNames.has((f.name || "").toLowerCase());
         return '<label class="twteam"><input type="checkbox" data-tw-fol="' + escapeHtml(ev) + '" data-name="' + escapeHtml(f.name) + '" data-tid="' + escapeHtml(f.team_id) + '"' + (on ? " checked" : "") + '>'
           + '<span>' + escapeHtml(f.name) + '</span><span class="tw-in">in event</span></label>';
       }).join("") || '<div class="twnote">None of your followed teams are in this event yet (they appear after a sync).</div>';
       // extra (free-text) teams = watched teams that aren't followed-in-event
       const folNames = new Set(followed.map(f => (f.name || "").toLowerCase()));
-      const extras = watched.filter(w => !folNames.has((w.team_name || "").toLowerCase()));
+      const folIds = new Set(followed.map(f => String(f.team_id)));
+      const extras = watched.filter(w => !(w.team_id && folIds.has(String(w.team_id))) && !folNames.has((w.team_name || "").toLowerCase()));
       const extraRows = extras.map(w =>
         '<div class="twteam"><span>' + escapeHtml(w.team_name) + '</span><button class="tw-x" data-tw-del="' + w.id + '">remove</button></div>'
       ).join("");
