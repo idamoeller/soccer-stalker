@@ -1964,9 +1964,16 @@
     const { data: teams } = await sb.from("followed_teams").select("team_id");
     const ids = (teams || []).map(t => t.team_id);
     if (!ids.length) { allGames = []; el.innerHTML = '<div class="empty">no teams yet · add one in Teams</div>'; gamesShown = 0; updateTfLabel(); return; }
-    const { data: games, error } = await sb.from("games").select("*").in("team_id", ids);
-    if (error) { el.innerHTML = '<div class="empty">error loading games — ' + escapeHtml(errmsg(error)) + '</div>'; return; }
-    allGames = dedupeDiscovered(games || []);
+    // Supabase caps each response at 1000 rows, so page through until a short page
+    const PAGE = 1000, games = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb.from("games").select("*").in("team_id", ids)
+        .order("match_id").order("team_id").range(from, from + PAGE - 1);
+      if (error) { el.innerHTML = '<div class="empty">error loading games — ' + escapeHtml(errmsg(error)) + '</div>'; return; }
+      games.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    allGames = dedupeDiscovered(games);
     // "synced X ago" reflects the freshest game the poller wrote
     const maxUpd = allGames.reduce((mx, g) => { const t = g.updated_at ? Date.parse(g.updated_at) : 0; return t > mx ? t : mx; }, 0);
     if (maxUpd) { lastSyncedAt = maxUpd; refreshSyncedAt(); }
